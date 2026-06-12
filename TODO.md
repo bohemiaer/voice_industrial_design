@@ -62,30 +62,30 @@
 ## 4. 后端基础骨架
 
 - [x] 初始化 `apps/server`
-- [ ] 搭建 `Fastify` 应用入口
+- [x] 搭建 `Fastify` 应用入口
 - [ ] 注册配置模块
 - [ ] 注册数据库连接
 - [ ] 注册 Redis / BullMQ
 - [ ] 搭建基础日志和错误处理
-- [ ] 定义 `sessions` 模块
-- [ ] 定义 `tasks` 模块
-- [ ] 定义 `tree` 模块
+- [x] 定义 `sessions` 模块
+- [x] 定义 `tasks` 模块
+- [x] 定义 `tree` 模块
 - [ ] 定义 `orchestrator` 模块
 - [ ] 定义 `agents` 模块
 - [ ] 定义 `media` 模块
 
 ## 5. 后端 API
 
-- [ ] 实现 `POST /api/sessions`
-- [ ] 实现 `GET /api/sessions/:sessionId/tree`
-- [ ] 实现 `GET /api/sessions/:sessionId/messages`
-- [ ] 实现 `POST /api/sessions/:sessionId/voice-turns`
-- [ ] 实现 `GET /api/tasks/:taskId`
-- [ ] 实现 `POST /api/tasks/:taskId/confirm`
-- [ ] 实现 `POST /api/tasks/:taskId/cancel`
-- [ ] 实现 `POST /api/sessions/:sessionId/undo`
-- [ ] 为 API 写请求校验
-- [ ] 为 API 写集成测试
+- [x] 实现 `POST /api/sessions`
+- [x] 实现 `GET /api/sessions/:sessionId/tree`
+- [x] 实现 `GET /api/sessions/:sessionId/messages`
+- [x] 实现 `POST /api/sessions/:sessionId/voice-turns`
+- [x] 实现 `GET /api/tasks/:taskId`
+- [x] 实现 `POST /api/tasks/:taskId/confirm`
+- [x] 实现 `POST /api/tasks/:taskId/cancel`
+- [x] 实现 `POST /api/sessions/:sessionId/undo`
+- [x] 为 API 写请求校验
+- [x] 为 API 写集成测试
 
 ## 6. Orchestrator 与任务状态机
 
