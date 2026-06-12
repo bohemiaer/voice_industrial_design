@@ -10,8 +10,9 @@
 - 比赛提交策略与 PR 计划
 - 一版 HTML 预览工作台原型
 - monorepo 基础工程结构初始化
+- `packages/shared` 的首版共享 schema、常量与测试
 
-当前仓库已经补齐 `apps/web`、`apps/server`、`packages/shared` 的基础骨架，但仍未进入真实业务实现阶段；主分支目前可复现的是文档基线、静态工作台预览和 monorepo 初始化结构。
+当前仓库已经补齐 `apps/web`、`apps/server`、`packages/shared` 的基础骨架，并完成了首版共享 schema 建模；主分支目前可复现的是文档基线、静态工作台预览、monorepo 初始化结构和 shared contracts。
 
 ## MVP 范围
 
@@ -62,9 +63,9 @@
 
 说明：
 
-- 当前仓库还没有把这些依赖全部加入 `package.json`。
-- 本阶段提交的重点是文档基线、提交流程和预览原型。
-- 后续 PR 会逐步把上述技术栈落到真实工程中。
+- 当前仓库已经引入 workspace 和 shared schema 所需的基础依赖。
+- 本阶段提交的重点是文档基线、预览原型、工程骨架和共享 contracts。
+- 后续 PR 会逐步把上述技术栈落到真实业务实现中。
 
 ## 规划中的目录结构
 
@@ -103,7 +104,7 @@ python -m http.server 4173
 
 - [http://localhost:4173/preview/index.html](http://localhost:4173/preview/index.html)
 
-### 2. 运行当前预览测试
+### 2. 运行预览测试
 
 ```powershell
 node --test tests/preview/workbench-preview.test.mjs
@@ -123,14 +124,28 @@ node --test tests/workspace/monorepo-scaffold.test.mjs
 
 - monorepo 基础结构测试通过
 
-### 4. 使用 pnpm 查看工程骨架
+### 4. 运行 shared schema 测试
+
+在编译 `packages/shared` 后，可运行：
+
+```powershell
+corepack pnpm --filter @voice-industrial-design/shared build
+node --test tests/workspace/shared-schema.test.mjs
+```
+
+预期结果：
+
+- shared schema 构建成功
+- shared schema 解析测试通过
+
+### 5. 使用 pnpm 查看工程骨架
 
 安装依赖后，可以分别启动工作台和服务端占位工程：
 
 ```powershell
-pnpm install
-pnpm dev:web
-pnpm dev:server
+corepack pnpm install
+corepack pnpm dev:web
+corepack pnpm dev:server
 ```
 
 ## 后续本地开发方式
@@ -171,8 +186,8 @@ pnpm dev:server
 
 当前尚未完成：
 
-- `apps/web` 与 `apps/server` 的真实工程骨架
-- `packages/shared` 的完整 schema 与常量
+- `apps/web` 与 `apps/server` 的真实业务实现
+- `packages/shared` 的更细粒度 domain schema 拆分
 - 数据库 migration 与 API
 - 硅基流动真实模型接入
 - 前后端联调与单次撤销闭环
