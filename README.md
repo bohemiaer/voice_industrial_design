@@ -9,8 +9,9 @@
 - 需求文档、技术方案、Agent PRD、实施计划
 - 比赛提交策略与 PR 计划
 - 一版 HTML 预览工作台原型
+- monorepo 基础工程结构初始化
 
-当前仓库尚未完成完整的 `Next.js + Fastify` 应用骨架；主分支目前可复现的是文档基线和静态工作台预览。
+当前仓库已经补齐 `apps/web`、`apps/server`、`packages/shared` 的基础骨架，但仍未进入真实业务实现阶段；主分支目前可复现的是文档基线、静态工作台预览和 monorepo 初始化结构。
 
 ## MVP 范围
 
@@ -67,7 +68,7 @@
 
 ## 规划中的目录结构
 
-当前已冻结的单仓库结构如下，后续会在工程初始化 PR 中逐步创建：
+当前已冻结的单仓库结构如下，当前仓库已完成其中的基础目录与入口文件初始化：
 
 ```text
 voice-painting/
@@ -112,6 +113,26 @@ node --test tests/preview/workbench-preview.test.mjs
 
 - 预览页面结构测试通过
 
+### 3. 运行 workspace 结构测试
+
+```powershell
+node --test tests/workspace/monorepo-scaffold.test.mjs
+```
+
+预期结果：
+
+- monorepo 基础结构测试通过
+
+### 4. 使用 pnpm 查看工程骨架
+
+安装依赖后，可以分别启动工作台和服务端占位工程：
+
+```powershell
+pnpm install
+pnpm dev:web
+pnpm dev:server
+```
+
 ## 后续本地开发方式
 
 完整 MVP 工程启动后，开发方式固定为：
@@ -124,7 +145,7 @@ node --test tests/preview/workbench-preview.test.mjs
 - `.env.example`
 - `docker-compose.yml`
 
-后续在工程初始化 PR 中会把完整启动脚本补齐。
+当前已经完成 monorepo 初始化，后续 PR 将在此基础上逐步补充 shared schema、数据库、API 和真实模型接入。
 
 ## 第三方服务与依赖说明
 
@@ -151,7 +172,7 @@ node --test tests/preview/workbench-preview.test.mjs
 当前尚未完成：
 
 - `apps/web` 与 `apps/server` 的真实工程骨架
-- `packages/shared` 的 schema 与常量
+- `packages/shared` 的完整 schema 与常量
 - 数据库 migration 与 API
 - 硅基流动真实模型接入
 - 前后端联调与单次撤销闭环

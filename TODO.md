@@ -28,7 +28,7 @@
 
 ## 2. Shared Contracts 与常量
 
-- [ ] 初始化 `packages/shared`
+- [x] 初始化 `packages/shared`
 - [ ] 定义 `Session` schema
 - [ ] 定义 `Message` schema
 - [ ] 定义 `TreeNode` schema
@@ -60,7 +60,7 @@
 
 ## 4. 后端基础骨架
 
-- [ ] 初始化 `apps/server`
+- [x] 初始化 `apps/server`
 - [ ] 搭建 `Fastify` 应用入口
 - [ ] 注册配置模块
 - [ ] 注册数据库连接
@@ -124,7 +124,7 @@
 
 ## 9. 前端基础骨架
 
-- [ ] 初始化 `apps/web`
+- [x] 初始化 `apps/web`
 - [ ] 搭建 `Next.js` 基础页面
 - [ ] 接入基础样式
 - [ ] 接入 `React Flow`
