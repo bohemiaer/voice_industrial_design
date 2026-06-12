@@ -78,6 +78,8 @@ voice-painting/
     server/
   packages/
     shared/
+  infra/
+    migrations/
   docs/
     superpowers/
       specs/
@@ -160,7 +162,7 @@ corepack pnpm dev:server
 - `.env.example`
 - `docker-compose.yml`
 
-当前已经完成 monorepo 初始化，后续 PR 将在此基础上逐步补充 shared schema、数据库、API 和真实模型接入。
+当前已经完成 monorepo 初始化、shared schema 和第一版数据库 DDL 设计草案；后续 PR 将在此基础上逐步补充正式 migration、API 和真实模型接入。
 
 ## 第三方服务与依赖说明
 
@@ -202,6 +204,7 @@ corepack pnpm dev:server
 - [需求文档](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\需求文档.md)
 - [技术方案](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\技术方案.md)
 - [Agent PRD](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\agent-PRD.md)
+- [数据库与持久层设计](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\数据库与持久层设计.md)
 - [MVP 实施计划](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\plans\2026-06-12-voice-brainstorm-mvp-implementation-plan.md)
 - [比赛 PR 计划](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\plans\2026-06-12-contest-pr-plan.md)
 - [开发 TODO](D:\Users\HCI_lab\Documents\voice-painting\TODO.md)

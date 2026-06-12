@@ -45,16 +45,17 @@
 
 ## 3. 数据库与持久层
 
-- [ ] 设计 `sessions` 表
-- [ ] 设计 `messages` 表
-- [ ] 设计 `tree_nodes` 表
-- [ ] 设计 `generation_tasks` 表
-- [ ] 设计 `branch_tasks` 表
-- [ ] 设计 `tree_operations` 表
-- [ ] 定义 `publicNodeNumber` 的分配策略
-- [ ] 定义 `layerVersion` 的写入策略
-- [ ] 定义 `supersededNodeIds` 与 `restoredNodeIds` 的回滚语义
-- [ ] 写第一版 migration
+- [x] 设计 `sessions` 表
+- [x] 设计 `messages` 表
+- [x] 设计 `tree_nodes` 表
+- [x] 设计 `generation_tasks` 表
+- [x] 设计 `branch_tasks` 表
+- [x] 设计 `tree_operations` 表
+- [x] 定义 `publicNodeNumber` 的分配策略
+- [x] 定义 `layerVersion` 的写入策略
+- [x] 定义 `supersededNodeIds` 与 `restoredNodeIds` 的回滚语义
+- [x] 补充第一版 SQL DDL 草案
+- [ ] 用 `Drizzle` 落正式 migration
 - [ ] 实现 repository / data-access 层
 - [ ] 为持久层写集成测试
 
