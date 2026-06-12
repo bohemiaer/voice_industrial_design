@@ -8,9 +8,11 @@
     "dev:web": "pnpm --filter @voice-industrial-design/web dev",
     "dev:server": "pnpm --filter @voice-industrial-design/server dev",
     "build": "pnpm -r --filter @voice-industrial-design/web --filter @voice-industrial-design/server build",
+    "build:shared": "pnpm --filter @voice-industrial-design/shared build",
     "typecheck": "pnpm -r typecheck",
-    "test": "node --test tests/preview/workbench-preview.test.mjs tests/workspace/monorepo-scaffold.test.mjs",
+    "test": "node --test tests/preview/workbench-preview.test.mjs tests/workspace/monorepo-scaffold.test.mjs tests/workspace/shared-schema.test.mjs",
     "test:preview": "node --test tests/preview/workbench-preview.test.mjs",
-    "test:workspace": "node --test tests/workspace/monorepo-scaffold.test.mjs"
+    "test:workspace": "node --test tests/workspace/monorepo-scaffold.test.mjs",
+    "test:shared": "node --test tests/workspace/shared-schema.test.mjs"
   }
 }

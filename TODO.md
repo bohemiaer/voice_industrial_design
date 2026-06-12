@@ -29,32 +29,33 @@
 ## 2. Shared Contracts 与常量
 
 - [x] 初始化 `packages/shared`
-- [ ] 定义 `Session` schema
-- [ ] 定义 `Message` schema
-- [ ] 定义 `TreeNode` schema
-- [ ] 定义 `GenerationTask` schema
-- [ ] 定义 `BranchTask` schema
-- [ ] 定义 `TreeOperation` schema
-- [ ] 定义 `BrainstormAssistantInput/Output`
-- [ ] 定义 `SketchGenerationInput/Output`
-- [ ] 固化任务状态枚举：`queued`、`transcribing`、`reasoning`、`awaiting_confirmation`、`generating`、`completed`、`failed`、`cancelled`
-- [ ] 固化高风险确认规则表
-- [ ] 固化节点命名规则
-- [ ] 固化节点引用优先级：数字序号 -> 名称 -> 层内序号
-- [ ] 为 shared schema 写测试
+- [x] 定义 `Session` schema
+- [x] 定义 `Message` schema
+- [x] 定义 `TreeNode` schema
+- [x] 定义 `GenerationTask` schema
+- [x] 定义 `BranchTask` schema
+- [x] 定义 `TreeOperation` schema
+- [x] 定义 `BrainstormAssistantInput/Output`
+- [x] 定义 `SketchGenerationInput/Output`
+- [x] 固化任务状态枚举：`queued`、`transcribing`、`reasoning`、`awaiting_confirmation`、`generating`、`completed`、`failed`、`cancelled`
+- [x] 固化高风险确认规则表
+- [x] 固化节点命名规则
+- [x] 固化节点引用优先级：数字序号 -> 名称 -> 层内序号
+- [x] 为 shared schema 写测试
 
 ## 3. 数据库与持久层
 
-- [ ] 设计 `sessions` 表
-- [ ] 设计 `messages` 表
-- [ ] 设计 `tree_nodes` 表
-- [ ] 设计 `generation_tasks` 表
-- [ ] 设计 `branch_tasks` 表
-- [ ] 设计 `tree_operations` 表
-- [ ] 定义 `publicNodeNumber` 的分配策略
-- [ ] 定义 `layerVersion` 的写入策略
-- [ ] 定义 `supersededNodeIds` 与 `restoredNodeIds` 的回滚语义
-- [ ] 写第一版 migration
+- [x] 设计 `sessions` 表
+- [x] 设计 `messages` 表
+- [x] 设计 `tree_nodes` 表
+- [x] 设计 `generation_tasks` 表
+- [x] 设计 `branch_tasks` 表
+- [x] 设计 `tree_operations` 表
+- [x] 定义 `publicNodeNumber` 的分配策略
+- [x] 定义 `layerVersion` 的写入策略
+- [x] 定义 `supersededNodeIds` 与 `restoredNodeIds` 的回滚语义
+- [x] 补充第一版 SQL DDL 草案
+- [ ] 用 `Drizzle` 落正式 migration
 - [ ] 实现 repository / data-access 层
 - [ ] 为持久层写集成测试
 
