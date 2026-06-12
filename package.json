@@ -1,0 +1,16 @@
+{
+  "name": "voice-industrial-design",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @voice-industrial-design/web --filter @voice-industrial-design/server dev",
+    "dev:web": "pnpm --filter @voice-industrial-design/web dev",
+    "dev:server": "pnpm --filter @voice-industrial-design/server dev",
+    "build": "pnpm -r --filter @voice-industrial-design/web --filter @voice-industrial-design/server build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "node --test tests/preview/workbench-preview.test.mjs tests/workspace/monorepo-scaffold.test.mjs",
+    "test:preview": "node --test tests/preview/workbench-preview.test.mjs",
+    "test:workspace": "node --test tests/workspace/monorepo-scaffold.test.mjs"
+  }
+}
