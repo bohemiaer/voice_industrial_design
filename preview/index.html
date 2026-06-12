@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice Painting Preview</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main
+      class="page-shell"
+      data-testid="workbench-shell"
+      data-workbench
+      data-panel-state="expanded"
+    >
+      <header class="floating-toolbar" aria-label="画布工具栏">
+        <div class="toolbar-group brand-pill">
+          <span class="brand-mark">VP</span>
+          <div>
+            <strong>Voice Painting</strong>
+            <span>Precision Lab</span>
+          </div>
+        </div>
+
+        <div class="toolbar-group">
+          <button class="icon-button" type="button" aria-label="缩小">−</button>
+          <div class="zoom-pill">100%</div>
+          <button class="icon-button" type="button" aria-label="放大">+</button>
+          <button class="icon-button" type="button" aria-label="撤销">↶</button>
+          <button class="icon-button" type="button" aria-label="重做">↷</button>
+          <button class="ghost-button" type="button">回到当前节点</button>
+        </div>
+
+        <div class="toolbar-group">
+          <button class="primary-button" type="button">导出方案板</button>
+        </div>
+      </header>
+
+      <section class="workspace-panel" data-testid="canvas-panel">
+        <div class="workspace-stage">
+          <div class="stage-caption">
+            <span class="eyebrow">Concept Tree Canvas</span>
+            <div class="stage-meta">
+              <span>当前层 2 / 4</span>
+              <span>共 12 个方向节点</span>
+            </div>
+          </div>
+
+          <svg class="tree-lines" viewBox="0 0 1100 720" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M154 143 C 250 143, 270 180, 360 180" />
+            <path d="M154 143 C 250 143, 280 300, 360 300" />
+            <path d="M154 143 C 250 143, 260 420, 360 420" />
+            <path d="M494 180 C 590 180, 620 140, 708 140" />
+            <path d="M494 180 C 590 180, 620 250, 708 250" />
+            <path d="M494 300 C 590 300, 620 324, 708 324" />
+            <path d="M494 420 C 590 420, 620 500, 708 500" />
+            <path d="M844 250 C 905 250, 940 250, 1000 250" />
+          </svg>
+
+          <article class="node-card node-root" style="left: 48px; top: 92px">
+            <span class="node-chip">ROOT</span>
+            <div class="node-sketch sketch-warm"></div>
+            <h3>便携桌面空气净化器</h3>
+            <p>项目 kickoff 输入，强调桌面友好、轻静音、办公环境。</p>
+          </article>
+
+          <article class="node-card" style="left: 360px; top: 120px">
+            <span class="node-chip">方向 07</span>
+            <div class="node-sketch sketch-cool"></div>
+            <h3>柔和家电化</h3>
+            <p>圆角轮廓，更贴近熟悉家居小电器语义。</p>
+          </article>
+
+          <article class="node-card node-card--active" style="left: 360px; top: 240px">
+            <span class="node-chip">方向 12</span>
+            <div class="node-sketch sketch-slate"></div>
+            <h3>轻薄办公感</h3>
+            <p>扁平比例、收敛体量、适合开放办公桌面。</p>
+          </article>
+
+          <article class="node-card" style="left: 360px; top: 360px">
+            <span class="node-chip">方向 18</span>
+            <div class="node-sketch sketch-olive"></div>
+            <h3>工具感几何化</h3>
+            <p>骨架更外露，强调结构清晰和模块秩序。</p>
+          </article>
+
+          <article class="node-card node-card--child" style="left: 708px; top: 84px">
+            <span class="node-chip">方向 24</span>
+            <div class="node-sketch sketch-cool"></div>
+            <h3>薄边框送风口</h3>
+            <p>更像办公设备，进风和出风区更克制。</p>
+          </article>
+
+          <article class="node-card node-card--child node-card--selected" style="left: 708px; top: 194px">
+            <span class="node-chip">方向 25</span>
+            <div class="node-sketch sketch-slate"></div>
+            <h3>屏幕伴侣式</h3>
+            <p>贴近显示器基座，视觉重心更低，适配工位。</p>
+          </article>
+
+          <article class="node-card node-card--child" style="left: 708px; top: 268px">
+            <span class="node-chip">方向 26</span>
+            <div class="node-sketch sketch-ice"></div>
+            <h3>悬浮底座式</h3>
+            <p>用底部留空减轻体量，保留轻盈办公气质。</p>
+          </article>
+
+          <article class="node-card node-card--ghost" style="left: 708px; top: 446px">
+            <span class="node-chip node-chip--pending">生成中</span>
+            <div class="node-sketch sketch-loading"></div>
+            <h3>等待下一轮分支</h3>
+            <p>确认后会继续沿当前方向下钻，生成更柔和子方向。</p>
+          </article>
+
+          <aside class="floating-insight">
+            <div class="floating-insight__header">
+              <strong>方向 25 说明</strong>
+              <span>当前选中</span>
+            </div>
+            <ul>
+              <li>造型语言：低重心、扁平化、精简进风口</li>
+              <li>回应需求：更适合办公桌搭配，不打断桌面秩序</li>
+              <li>灵感来源：显示器底座、桌面音箱、会议设备</li>
+            </ul>
+          </aside>
+        </div>
+
+        <div class="voice-dock" data-testid="voice-dock">
+          <div class="voice-dock__summary">
+            <span class="eyebrow">Voice Turn</span>
+            <p>“沿着方向 12 再多给我 3 个更柔和、更适合办公环境的子方向。”</p>
+          </div>
+          <div class="voice-dock__actions">
+            <button class="dock-secondary" type="button">提示灵感</button>
+            <button class="dock-recording" type="button">
+              <span class="recording-pulse" aria-hidden="true"></span>
+              按住说话
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="conversation-panel" data-testid="conversation-panel">
+        <button
+          class="panel-toggle"
+          type="button"
+          data-action="toggle-panel"
+          aria-label="收起右侧面板"
+          aria-expanded="true"
+        >
+          <span class="toggle-icon">⇥</span>
+        </button>
+
+        <div class="panel-rail">
+          <span class="rail-label">Voice</span>
+          <span class="rail-status"></span>
+          <span class="rail-target">12</span>
+        </div>
+
+        <div class="panel-content">
+          <div class="panel-topbar">
+            <div>
+              <span class="eyebrow">当前目标节点</span>
+              <strong>方向 12 · 轻薄办公感</strong>
+            </div>
+            <button class="ghost-button small" type="button">会话摘要</button>
+          </div>
+
+          <section class="status-card">
+            <div class="status-card__row">
+              <span class="eyebrow">识别操作</span>
+              <strong>新增 3 个同级方向</strong>
+            </div>
+            <p>系统已识别为 `expand_branches`，作用对象为当前已选方向 12。</p>
+          </section>
+
+          <section class="message-stack" aria-label="对话记录">
+            <article class="message message--user">
+              <span class="message-role">你</span>
+              <p>沿着方向 12 再多给我几个更柔和、更适合办公环境的方向。</p>
+            </article>
+
+            <article class="message message--assistant">
+              <span class="message-role">AI</span>
+              <p>我将基于“轻薄办公感”继续发散，补充 3 个办公语境更强的平级方案。</p>
+            </article>
+
+            <article class="confirmation-card">
+              <div class="confirmation-card__header">
+                <strong>待确认</strong>
+                <span>高风险树操作</span>
+              </div>
+              <p>我将沿当前活跃节点增加 3 个平级方向，并保留已存在分支。</p>
+              <div class="confirmation-actions">
+                <button class="ghost-button small" type="button">取消</button>
+                <button class="primary-button small" type="button">确认继续</button>
+              </div>
+            </article>
+          </section>
+
+          <section class="hint-card">
+            <span class="eyebrow">继续发散提示</span>
+            <ul>
+              <li>可以补充比例关系，比如“更薄一些”或“更低重心”。</li>
+              <li>也可以指定气质，比如“更像办公设备，不像家电”。</li>
+              <li>如果想往下钻，可以直接说“沿着方向 25 继续”。</li>
+            </ul>
+          </section>
+        </div>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
