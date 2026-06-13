@@ -10,6 +10,9 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@voice-industrial-design/shared": ["packages/shared/src/index.ts"]
+    }
   }
 }

@@ -35,3 +35,6 @@ __pycache__/
 
 # Local docker volumes / temp
 .data/
+
+# Local reference prototype
+frontend-refer/
