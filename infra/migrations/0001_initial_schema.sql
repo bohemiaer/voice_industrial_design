@@ -20,6 +20,7 @@ create table if not exists generation_tasks (
   session_id uuid not null references sessions(id) on delete cascade,
   target_node_id uuid not null,
   action_type text not null check (action_type in ('expand_branches', 'refresh_layer', 'branch_deeper')),
+  branch_count integer not null check (branch_count >= 1),
   status text not null check (status in ('queued', 'transcribing', 'reasoning', 'awaiting_confirmation', 'generating', 'completed', 'failed', 'cancelled')),
   confirmation_required boolean not null default false,
   confirmation_status text not null default 'not_required' check (confirmation_status in ('not_required', 'awaiting_confirmation', 'confirmed', 'cancelled')),

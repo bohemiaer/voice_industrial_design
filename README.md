@@ -11,6 +11,7 @@
 - 一版 HTML 预览工作台原型
 - monorepo 基础工程结构初始化
 - `packages/shared` 的首版共享 schema、常量与测试
+- `apps/server` 的首版 `Fastify + Drizzle` 运行时与基础 API
 
 当前仓库已经补齐 `apps/web`、`apps/server`、`packages/shared` 的基础骨架，并完成了首版共享 schema 建模；主分支目前可复现的是文档基线、静态工作台预览、monorepo 初始化结构和 shared contracts。
 
@@ -190,7 +191,7 @@ corepack pnpm dev:server
 
 - `apps/web` 与 `apps/server` 的真实业务实现
 - `packages/shared` 的更细粒度 domain schema 拆分
-- 数据库 migration 与 API
+- 完整数据库 migration、repository 事务化写树与 orchestrator
 - 硅基流动真实模型接入
 - 前后端联调与单次撤销闭环
 
