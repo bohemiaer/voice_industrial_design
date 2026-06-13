@@ -10,10 +10,10 @@
     "build": "corepack pnpm build:shared && corepack pnpm -r --filter @voice-industrial-design/web --filter @voice-industrial-design/server build",
     "build:shared": "corepack pnpm --filter @voice-industrial-design/shared build",
     "typecheck": "corepack pnpm -r typecheck",
-    "test": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && node --test tests/preview/workbench-preview.test.mjs tests/workspace/monorepo-scaffold.test.mjs tests/workspace/shared-schema.test.mjs tests/server/api.test.mjs",
+    "test": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && node --test tests/preview/workbench-preview.test.mjs tests/workspace/monorepo-scaffold.test.mjs tests/workspace/shared-schema.test.mjs tests/server/api.test.mjs tests/server/config.test.mjs",
     "test:web": "node --test tests/web/workbench-page.test.mjs",
     "test:preview": "node --test tests/preview/workbench-preview.test.mjs",
-    "test:server": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && node --test tests/server/api.test.mjs",
+    "test:server": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && node --test tests/server/api.test.mjs tests/server/config.test.mjs",
     "test:workspace": "node --test tests/workspace/monorepo-scaffold.test.mjs",
     "test:shared": "node --test tests/workspace/shared-schema.test.mjs"
   }

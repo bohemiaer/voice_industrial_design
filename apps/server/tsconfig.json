@@ -5,7 +5,10 @@
     "moduleResolution": "NodeNext",
     "outDir": "dist",
     "rootDir": "src",
-    "noEmit": false
+    "noEmit": false,
+    "paths": {
+      "@voice-industrial-design/shared": ["packages/shared/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

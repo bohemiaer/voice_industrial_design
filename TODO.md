@@ -63,15 +63,15 @@
 
 - [x] 初始化 `apps/server`
 - [x] 搭建 `Fastify` 应用入口
-- [ ] 注册配置模块
+- [x] 注册配置模块
 - [ ] 注册数据库连接
 - [ ] 注册 Redis / BullMQ
 - [ ] 搭建基础日志和错误处理
 - [x] 定义 `sessions` 模块
 - [x] 定义 `tasks` 模块
 - [x] 定义 `tree` 模块
-- [ ] 定义 `orchestrator` 模块
-- [ ] 定义 `agents` 模块
+- [x] 定义 `orchestrator` 模块
+- [x] 定义 `agents` 模块
 - [ ] 定义 `media` 模块
 
 ## 5. 后端 API
@@ -89,25 +89,25 @@
 
 ## 6. Orchestrator 与任务状态机
 
-- [ ] 实现语音 turn 接收与任务创建
-- [ ] 实现 ASR 调用编排
-- [ ] 实现上下文收集：当前节点、祖先路径、兄弟节点摘要
-- [ ] 实现 Brainstorm Assistant 调用
-- [ ] 实现 assistant 输出 schema 校验
-- [ ] 实现高风险操作判断
-- [ ] 实现复述改写文本生成与 `awaiting_confirmation`
+- [x] 实现语音 turn 接收与任务创建
+- [x] 实现 ASR 调用编排
+- [x] 实现上下文收集：当前节点、祖先路径、兄弟节点摘要
+- [x] 实现 Brainstorm Assistant 调用
+- [x] 实现 assistant 输出 schema 校验
+- [x] 实现高风险操作判断
+- [x] 实现复述改写文本生成与 `awaiting_confirmation`
 - [ ] 实现确认后继续生成
-- [ ] 实现取消后只读结束
+- [x] 实现取消后只读结束
 - [ ] 实现 BranchTask 拆分与并发
 - [ ] 实现所有结果写回 session、message、task、tree
-- [ ] 为状态机写测试
+- [x] 为状态机写测试
 
 ## 7. 树写入与单次撤销
 
-- [ ] 实现 `expand_branches` 写树
+- [x] 实现 `expand_branches` 写树
 - [ ] 实现 `refresh_layer` 写树
 - [ ] 实现 `branch_deeper` 写树
-- [ ] 实现 `TreeOperation` 记录
+- [x] 实现 `TreeOperation` 记录
 - [ ] 实现单次撤销的可撤销检查
 - [ ] 实现单次撤销的确认流程
 - [ ] 实现单次撤销的树恢复逻辑
@@ -115,7 +115,7 @@
 
 ## 8. 硅基流动模型接入
 
-- [ ] 实现 `SiliconFlowGateway`
+- [x] 实现 `SiliconFlowGateway`
 - [ ] 接入 `FunAudioLLM/SenseVoiceSmall`
 - [ ] 接入 `deepseek-ai/DeepSeek-V4-Flash`
 - [ ] 接入 `Tongyi-MAI/Z-Image-Turbo`
