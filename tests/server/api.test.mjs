@@ -107,7 +107,7 @@ test("voice turn APIs create tasks and support confirm/cancel plus task lookup",
 
   assert.equal(voiceTurnResponse.statusCode, 202);
   const queuedTask = voiceTurnResponse.json().task;
-  assert.equal(queuedTask.status, "queued");
+  assert.equal(queuedTask.status, "completed");
   assert.equal(queuedTask.confirmationStatus, "not_required");
 
   const taskResponse = await app.inject({
@@ -173,6 +173,56 @@ test("voice turn APIs create tasks and support confirm/cancel plus task lookup",
   assert.equal(cancelResponse.statusCode, 200);
   assert.equal(cancelResponse.json().task.confirmationStatus, "cancelled");
   assert.equal(cancelResponse.json().task.status, "cancelled");
+
+  await app.close();
+});
+
+test("voice turn is orchestrated by the backend from transcript only", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "台灯方向探索",
+      goal: "围绕更柔和的办公台灯做首轮发散"
+    }
+  });
+
+  const { session } = createSessionResponse.json();
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    }
+  });
+
+  assert.equal(response.statusCode, 202);
+  const { task } = response.json();
+  assert.equal(task.actionType, "expand_branches");
+  assert.equal(task.status, "completed");
+  assert.equal(task.confirmationStatus, "not_required");
+  assert.equal(task.branchCount, 4);
+
+  const messagesResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/messages`
+  });
+  const messages = messagesResponse.json().messages;
+  assert.equal(messages.some((message) => message.kind === "transcript"), true);
+  assert.equal(messages.some((message) => message.kind === "summary"), true);
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const nodes = treeResponse.json().nodes;
+  assert.equal(nodes.length, 4);
+  assert.equal(nodes[0].status, "ready");
+  assert.equal(nodes[0].publicNodeNumber, 1);
 
   await app.close();
 });

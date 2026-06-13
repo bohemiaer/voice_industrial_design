@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { ApiError } from "../errors.js";
+import type { Orchestrator } from "../orchestrator/service.js";
 import type { AppServices } from "../repositories/types.js";
 
 const createSessionSchema = z.object({
@@ -11,18 +12,13 @@ const createSessionSchema = z.object({
 
 const voiceTurnSchema = z.object({
   transcriptText: z.string().min(1),
-  targetNodeId: z.string().min(1).nullable(),
-  actionType: z.enum(["expand_branches", "refresh_layer", "branch_deeper"]),
-  branchCount: z.number().int().positive().max(4),
-  designIntentSummary: z.string().min(1),
-  assistantReply: z.string().min(1),
-  confirmationRequired: z.boolean(),
-  rewrittenIntentForConfirmation: z.string().min(1).optional()
+  targetNodeId: z.string().min(1).nullable()
 });
 
 export async function registerSessionRoutes(
   app: FastifyInstance,
-  services: AppServices
+  services: AppServices,
+  orchestrator: Orchestrator
 ): Promise<void> {
   app.post("/api/sessions", async (request, reply) => {
     const input = createSessionSchema.parse(request.body);
@@ -66,35 +62,10 @@ export async function registerSessionRoutes(
     }
 
     const input = voiceTurnSchema.parse(request.body);
-    const targetNodeId =
-      input.targetNodeId ??
-      session.activeNodeId ??
-      session.lastMentionedNodeId ??
-      session.id;
-
-    const task = await services.repositories.generationTasks.create({
-      ...input,
-      rewrittenIntentForConfirmation:
-        input.rewrittenIntentForConfirmation ?? null,
+    const task = await orchestrator.processVoiceTurn({
       sessionId,
-      targetNodeId
-    });
-
-    await services.repositories.messages.create({
-      sessionId,
-      taskId: task.id,
-      role: "user",
-      kind: "transcript",
-      content: input.transcriptText
-    });
-
-    await services.repositories.messages.create({
-      sessionId,
-      taskId: task.id,
-      role: "assistant",
-      kind: input.confirmationRequired ? "confirmation" : "summary",
-      content:
-        input.rewrittenIntentForConfirmation ?? input.assistantReply
+      transcriptText: input.transcriptText,
+      targetNodeId: input.targetNodeId
     });
 
     return reply.status(202).send({

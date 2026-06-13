@@ -2,8 +2,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 
 import { loadConfig, type PersistenceMode } from "./config.js";
+import { createAgentGateway } from "./agents/index.js";
 import { createDatabase } from "./db/client.js";
 import { isApiError } from "./errors.js";
+import { createOrchestrator } from "./orchestrator/service.js";
 import { createDrizzleServices } from "./repositories/drizzle.js";
 import { createMemoryServices } from "./repositories/memory.js";
 import type { AppServices } from "./repositories/types.js";
@@ -37,6 +39,9 @@ export async function buildApp(
     services = createMemoryServices();
   }
 
+  const agentGateway = createAgentGateway(config);
+  const orchestrator = createOrchestrator(services, config, agentGateway);
+
   app.setErrorHandler((error, request, reply) => {
     if (isApiError(error)) {
       reply.status(error.statusCode).send({
@@ -69,8 +74,8 @@ export async function buildApp(
   });
 
   await registerHealthRoutes(app, services);
-  await registerSessionRoutes(app, services);
-  await registerTaskRoutes(app, services);
+  await registerSessionRoutes(app, services, orchestrator);
+  await registerTaskRoutes(app, services, orchestrator);
 
   app.addHook("onClose", async () => {
     if (poolCloser) {
