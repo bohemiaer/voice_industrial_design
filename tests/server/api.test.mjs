@@ -1,11 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const appEntry = pathToFileURL(
   path.join(process.cwd(), "apps", "server", "dist", "app.js")
 ).href;
+const appSource = readSource("apps/server/src/app.ts");
+const sessionRoutesSource = readSource("apps/server/src/routes/sessions.ts");
+const orchestratorSource = readSource("apps/server/src/orchestrator/service.ts");
+
+function readSource(relativePath) {
+  return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
+}
 
 async function createTestApp() {
   const { buildApp } = await import(appEntry);
@@ -252,4 +260,14 @@ test("undo endpoint fails cleanly when no confirmed tree operation exists", asyn
   assert.equal(undoResponse.json().error.code, "UNDO_NOT_AVAILABLE");
 
   await app.close();
+});
+
+test("server supports multipart audio voice turns", () => {
+  assert.match(appSource, /@fastify\/multipart/);
+  assert.match(appSource, /app.register\(multipart/);
+  assert.match(sessionRoutesSource, /request\.parts\(\)/);
+  assert.match(sessionRoutesSource, /part\.toBuffer\(\)/);
+  assert.match(sessionRoutesSource, /mimeType/);
+  assert.match(orchestratorSource, /audio: input\.audio/);
+  assert.match(orchestratorSource, /mimeType: input\.mimeType/);
 });

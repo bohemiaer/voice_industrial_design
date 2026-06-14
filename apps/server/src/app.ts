@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 
 import { loadConfig, type PersistenceMode } from "./config.js";
@@ -24,6 +25,13 @@ export async function buildApp(
   const persistenceMode = options.persistenceMode ?? "postgres";
   const app = Fastify({
     logger: true
+  });
+
+  await app.register(multipart, {
+    limits: {
+      fileSize: 12 * 1024 * 1024,
+      files: 1
+    }
   });
 
   let services: AppServices;

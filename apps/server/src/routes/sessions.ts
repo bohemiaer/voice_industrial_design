@@ -15,6 +15,13 @@ const voiceTurnSchema = z.object({
   targetNodeId: z.string().min(1).nullable()
 });
 
+type VoiceTurnInput = {
+  transcriptText?: string;
+  audio?: Buffer;
+  mimeType?: string;
+  targetNodeId: string | null;
+};
+
 export async function registerSessionRoutes(
   app: FastifyInstance,
   services: AppServices,
@@ -61,10 +68,12 @@ export async function registerSessionRoutes(
       throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
     }
 
-    const input = voiceTurnSchema.parse(request.body);
+    const input = await parseVoiceTurnRequest(request);
     const task = await orchestrator.processVoiceTurn({
       sessionId,
       transcriptText: input.transcriptText,
+      audio: input.audio,
+      mimeType: input.mimeType,
       targetNodeId: input.targetNodeId
     });
 
@@ -112,4 +121,69 @@ export async function registerSessionRoutes(
       operation: undoOperation
     };
   });
+}
+
+async function parseVoiceTurnRequest(request: {
+  body: unknown;
+  isMultipart: () => boolean;
+  parts: () => AsyncIterable<
+    | {
+        type: "file";
+        fieldname: string;
+        mimetype: string;
+        toBuffer: () => Promise<Buffer>;
+      }
+    | {
+        type: "field";
+        fieldname: string;
+        value: unknown;
+      }
+  >;
+}): Promise<VoiceTurnInput> {
+  if (!request.isMultipart()) {
+    return voiceTurnSchema.parse(request.body);
+  }
+
+  let audio: Buffer | undefined;
+  let mimeType: string | undefined;
+  let targetNodeId: string | null = null;
+  let transcriptText: string | undefined;
+
+  for await (const part of request.parts()) {
+    if (part.type === "file" && part.fieldname === "audio") {
+      audio = await part.toBuffer();
+      mimeType = part.mimetype;
+      continue;
+    }
+
+    if (part.type === "field" && part.fieldname === "targetNodeId") {
+      targetNodeId =
+        typeof part.value === "string" && part.value.length > 0
+          ? part.value
+          : null;
+      continue;
+    }
+
+    if (part.type === "field" && part.fieldname === "transcriptText") {
+      transcriptText =
+        typeof part.value === "string" && part.value.length > 0
+          ? part.value
+          : undefined;
+    }
+  }
+
+  if (!audio && !transcriptText) {
+    throw new ApiError(
+      400,
+      "VOICE_TURN_INPUT_REQUIRED",
+      "Either audio or transcriptText is required"
+    );
+  }
+
+  return {
+    transcriptText,
+    audio,
+    mimeType,
+    targetNodeId
+  };
 }

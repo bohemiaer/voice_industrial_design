@@ -17,7 +17,9 @@ import type { AppServices } from "../repositories/types.js";
 
 export interface ProcessVoiceTurnInput {
   sessionId: string;
-  transcriptText: string;
+  transcriptText?: string;
+  audio?: Buffer;
+  mimeType?: string;
   targetNodeId: string | null;
 }
 
@@ -45,7 +47,9 @@ export function createOrchestrator(
       }
 
       const transcript = await agentGateway.transcribeAudio({
-        transcriptText: input.transcriptText
+        transcriptText: input.transcriptText,
+        audio: input.audio,
+        mimeType: input.mimeType
       });
       const treeNodes = await services.repositories.treeNodes.listBySessionId(
         input.sessionId
@@ -259,8 +263,11 @@ async function persistExpandBranches(input: {
   const existingSiblings = input.treeNodes.filter(
     (node) => node.parentNodeId === parentNodeId
   );
-  const branchTasks = [];
-  const generatedSketches: SketchGenerationOutput[] = [];
+  const successfulBranches: Array<{
+    branchTaskId: string;
+    brief: VisualDirectionBrief;
+    sketch: SketchGenerationOutput;
+  }> = [];
 
   for (const [index, brief] of input.assistantOutput.directionBriefs.entries()) {
     const branchTask = await input.services.repositories.branchTasks.create({
@@ -271,21 +278,47 @@ async function persistExpandBranches(input: {
       imageUrl: null,
       errorMessage: null
     });
-    const sketch = await input.agentGateway.generateSketch(
-      buildSketchInput(brief, depth, input.assistantOutput.directionBriefs)
-    );
-    await input.services.repositories.branchTasks.update({
-      branchTaskId: branchTask.id,
-      status: "completed",
-      imageUrl: sketch.imageUrl
+
+    try {
+      const sketch = await input.agentGateway.generateSketch(
+        buildSketchInput(brief, depth, input.assistantOutput.directionBriefs)
+      );
+      await input.services.repositories.branchTasks.update({
+        branchTaskId: branchTask.id,
+        status: "completed",
+        imageUrl: sketch.imageUrl
+      });
+      successfulBranches.push({
+        branchTaskId: branchTask.id,
+        brief,
+        sketch
+      });
+    } catch (error) {
+      await input.services.repositories.branchTasks.update({
+        branchTaskId: branchTask.id,
+        status: "failed",
+        errorMessage:
+          error instanceof Error ? error.message : "Sketch generation failed"
+      });
+    }
+  }
+
+  if (successfulBranches.length === 0) {
+    const failedTask = await input.services.repositories.generationTasks.updateStatus({
+      taskId: input.task.id,
+      status: "failed"
     });
-    branchTasks.push(branchTask);
-    generatedSketches.push(sketch);
+
+    if (!failedTask) {
+      throw new ApiError(404, "TASK_NOT_FOUND", "Task not found");
+    }
+
+    return failedTask;
   }
 
   const firstPublicNodeNumber = input.session.nextPublicNodeNumber;
   const nodes = await input.services.repositories.treeNodes.createMany(
-    input.assistantOutput.directionBriefs.map((brief, index) => ({
+    successfulBranches.map(({ brief, sketch }, index) => ({
       sessionId: input.session.id,
       parentNodeId,
       createdFromTaskId: input.task.id,
@@ -304,16 +337,16 @@ async function persistExpandBranches(input: {
       formLanguage: brief.formLanguage,
       userNeedResponse: brief.userNeedResponse,
       inspirationHints: brief.inspirationHints,
-      imageUrl: generatedSketches[index].imageUrl,
+      imageUrl: sketch.imageUrl,
       status: "ready"
     }))
   );
 
-  for (const [index, branchTask] of branchTasks.entries()) {
+  for (const [index, branch] of successfulBranches.entries()) {
     await input.services.repositories.branchTasks.update({
-      branchTaskId: branchTask.id,
+      branchTaskId: branch.branchTaskId,
       status: "completed",
-      imageUrl: generatedSketches[index].imageUrl,
+      imageUrl: branch.sketch.imageUrl,
       persistedNodeId: nodes[index].id
     });
   }
