@@ -96,22 +96,22 @@
 - [x] 实现 assistant 输出 schema 校验
 - [x] 实现高风险操作判断
 - [x] 实现复述改写文本生成与 `awaiting_confirmation`
-- [ ] 实现确认后继续生成
+- [x] 实现确认后继续生成
 - [x] 实现取消后只读结束
 - [ ] 实现 BranchTask 拆分与并发
-- [ ] 实现所有结果写回 session、message、task、tree
+- [x] 实现所有结果写回 session、message、task、tree
 - [x] 为状态机写测试
 
 ## 7. 树写入与单次撤销
 
 - [x] 实现 `expand_branches` 写树
-- [ ] 实现 `refresh_layer` 写树
-- [ ] 实现 `branch_deeper` 写树
+- [x] 实现 `refresh_layer` 写树
+- [x] 实现 `branch_deeper` 写树
 - [x] 实现 `TreeOperation` 记录
-- [ ] 实现单次撤销的可撤销检查
+- [x] 实现单次撤销的可撤销检查
 - [ ] 实现单次撤销的确认流程
-- [ ] 实现单次撤销的树恢复逻辑
-- [ ] 为写树与撤销写集成测试
+- [x] 实现单次撤销的树恢复逻辑
+- [x] 为写树与撤销写集成测试
 
 ## 8. 硅基流动模型接入
 

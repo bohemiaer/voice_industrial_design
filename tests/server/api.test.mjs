@@ -154,7 +154,7 @@ test("voice turn APIs create tasks and support confirm/cancel plus task lookup",
 
   assert.equal(confirmResponse.statusCode, 200);
   assert.equal(confirmResponse.json().task.confirmationStatus, "confirmed");
-  assert.equal(confirmResponse.json().task.status, "generating");
+  assert.equal(confirmResponse.json().task.status, "completed");
 
   const cancelTurnResponse = await app.inject({
     method: "POST",
@@ -258,6 +258,175 @@ test("undo endpoint fails cleanly when no confirmed tree operation exists", asyn
 
   assert.equal(undoResponse.statusCode, 409);
   assert.equal(undoResponse.json().error.code, "UNDO_NOT_AVAILABLE");
+
+  await app.close();
+});
+
+test("confirming branch_deeper persists child nodes and completes the task", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    }
+  });
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const targetNode = initialTree.json().nodes[0];
+
+  const riskyTurn = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "沿着这个方向继续下钻三个子方向",
+      targetNodeId: targetNode.id
+    }
+  });
+  const awaitingTask = riskyTurn.json().task;
+  assert.equal(awaitingTask.status, "awaiting_confirmation");
+
+  const confirmResponse = await app.inject({
+    method: "POST",
+    url: `/api/tasks/${awaitingTask.id}/confirm`
+  });
+  assert.equal(confirmResponse.statusCode, 200);
+  assert.equal(confirmResponse.json().task.status, "completed");
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const childNodes = treeResponse
+    .json()
+    .nodes.filter((node) => node.parentNodeId === targetNode.id);
+  assert.equal(childNodes.length, 3);
+  assert.equal(childNodes.every((node) => node.depth === targetNode.depth + 1), true);
+
+  await app.close();
+});
+
+test("confirming refresh_layer replaces the visible sibling layer", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    }
+  });
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const initialNodes = initialTree.json().nodes;
+
+  const riskyTurn = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "刷新当前层，换三个方向",
+      targetNodeId: initialNodes[0].id
+    }
+  });
+  const awaitingTask = riskyTurn.json().task;
+
+  const confirmResponse = await app.inject({
+    method: "POST",
+    url: `/api/tasks/${awaitingTask.id}/confirm`
+  });
+  assert.equal(confirmResponse.json().task.status, "completed");
+
+  const refreshedTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const refreshedNodes = refreshedTree.json().nodes;
+  assert.equal(refreshedNodes.length, 3);
+  assert.equal(refreshedNodes.some((node) => node.id === initialNodes[0].id), false);
+  assert.equal(refreshedNodes.every((node) => node.layerVersion === 2), true);
+
+  await app.close();
+});
+
+test("undo restores the layer superseded by refresh_layer", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    }
+  });
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const initialNodeIds = initialTree.json().nodes.map((node) => node.id);
+
+  const riskyTurn = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "刷新当前层，换三个方向",
+      targetNodeId: initialNodeIds[0]
+    }
+  });
+  await app.inject({
+    method: "POST",
+    url: `/api/tasks/${riskyTurn.json().task.id}/confirm`
+  });
+
+  const undoResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/undo`
+  });
+  assert.equal(undoResponse.statusCode, 200);
+
+  const restoredTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const restoredNodeIds = restoredTree.json().nodes.map((node) => node.id);
+  assert.deepEqual(restoredNodeIds.sort(), initialNodeIds.sort());
 
   await app.close();
 });

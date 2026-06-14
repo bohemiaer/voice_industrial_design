@@ -104,25 +104,40 @@ export function createOrchestrator(
       });
 
       if (assistantOutput.confirmationRequired) {
-        return task;
+        for (const [index, brief] of assistantOutput.directionBriefs.entries()) {
+          await services.repositories.branchTasks.create({
+            generationTaskId: task.id,
+            branchIndex: index,
+            brief,
+            status: "queued",
+            imageUrl: null,
+            errorMessage: null
+          });
+        }
+
+        return (await services.repositories.generationTasks.getById(task.id)) ?? task;
       }
 
-      if (assistantOutput.actionType !== "expand_branches") {
-        return task;
-      }
-
-      return persistExpandBranches({
+      return persistGeneratedBranches({
         services,
         agentGateway,
         session,
         task,
         targetNode: targetContext.targetNode,
         treeNodes,
-        assistantOutput
+        actionType: assistantOutput.actionType,
+        briefs: assistantOutput.directionBriefs
       });
     },
 
     async confirmTask(input: TaskDecisionInput): Promise<GenerationTask> {
+      const pendingTask =
+        await services.repositories.generationTasks.getById(input.taskId);
+
+      if (!pendingTask) {
+        throw new ApiError(404, "TASK_NOT_FOUND", "Task not found");
+      }
+
       const task = await services.repositories.generationTasks.updateConfirmation({
         taskId: input.taskId,
         decision: "confirm"
@@ -132,7 +147,35 @@ export function createOrchestrator(
         throw new ApiError(404, "TASK_NOT_FOUND", "Task not found");
       }
 
-      return task;
+      const session = await services.repositories.sessions.getById(task.sessionId);
+
+      if (!session) {
+        throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
+      }
+
+      const treeNodes = await services.repositories.treeNodes.listBySessionId(
+        session.id
+      );
+      const targetNode =
+        treeNodes.find((node) => node.id === task.targetNodeId) ?? null;
+
+      if (task.targetNodeId !== session.id && !targetNode) {
+        throw new ApiError(404, "TARGET_NODE_NOT_FOUND", "Target node not found");
+      }
+
+      return persistGeneratedBranches({
+        services,
+        agentGateway,
+        session,
+        task: {
+          ...task,
+          branchTasks: pendingTask.branchTasks
+        },
+        targetNode,
+        treeNodes,
+        actionType: task.actionType,
+        briefs: pendingTask.branchTasks.map((branchTask) => branchTask.brief)
+      });
     },
 
     async cancelTask(input: TaskDecisionInput): Promise<GenerationTask> {
@@ -249,39 +292,60 @@ function validateAssistantOutput(
   }
 }
 
-async function persistExpandBranches(input: {
+async function persistGeneratedBranches(input: {
   services: AppServices;
   agentGateway: AgentGateway;
   session: Session;
   task: GenerationTask;
   targetNode: TreeNode | null;
   treeNodes: TreeNode[];
-  assistantOutput: BrainstormAssistantOutput;
+  actionType: BrainstormAssistantOutput["actionType"];
+  briefs: VisualDirectionBrief[];
 }): Promise<GenerationTask> {
-  const parentNodeId = input.targetNode?.id ?? null;
-  const depth = input.targetNode ? input.targetNode.depth + 1 : 0;
+  const isRefresh = input.actionType === "refresh_layer";
+  const parentNodeId = isRefresh
+    ? input.targetNode?.parentNodeId ?? null
+    : input.targetNode?.id ?? null;
+  const depth = isRefresh
+    ? input.targetNode?.depth ?? 0
+    : input.targetNode
+      ? input.targetNode.depth + 1
+      : 0;
   const existingSiblings = input.treeNodes.filter(
     (node) => node.parentNodeId === parentNodeId
   );
+  const supersededNodeIds = isRefresh
+    ? existingSiblings.map((node) => node.id)
+    : [];
+  const nextLayerVersion = isRefresh
+    ? Math.max(0, ...existingSiblings.map((node) => node.layerVersion)) + 1
+    : 1;
   const successfulBranches: Array<{
     branchTaskId: string;
     brief: VisualDirectionBrief;
     sketch: SketchGenerationOutput;
   }> = [];
 
-  for (const [index, brief] of input.assistantOutput.directionBriefs.entries()) {
-    const branchTask = await input.services.repositories.branchTasks.create({
-      generationTaskId: input.task.id,
-      branchIndex: index,
-      brief,
-      status: "generating",
-      imageUrl: null,
-      errorMessage: null
+  for (const [index, brief] of input.briefs.entries()) {
+    const branchTask =
+      input.task.branchTasks[index] ??
+      (await input.services.repositories.branchTasks.create({
+        generationTaskId: input.task.id,
+        branchIndex: index,
+        brief,
+        status: "generating",
+        imageUrl: null,
+        errorMessage: null
+      }));
+
+    await input.services.repositories.branchTasks.update({
+      branchTaskId: branchTask.id,
+      status: "generating"
     });
 
     try {
       const sketch = await input.agentGateway.generateSketch(
-        buildSketchInput(brief, depth, input.assistantOutput.directionBriefs)
+        buildSketchInput(brief, depth, input.briefs)
       );
       await input.services.repositories.branchTasks.update({
         branchTaskId: branchTask.id,
@@ -323,15 +387,15 @@ async function persistExpandBranches(input: {
       parentNodeId,
       createdFromTaskId: input.task.id,
       depth,
-      layerOrdinal: existingSiblings.length + index + 1,
-      layerVersion: 1,
+      layerOrdinal: isRefresh ? index + 1 : existingSiblings.length + index + 1,
+      layerVersion: nextLayerVersion,
       publicNodeNumber: firstPublicNodeNumber + index,
       displayName: brief.displayName,
       label: brief.label,
       voiceAliases: [
         brief.displayName,
         `${firstPublicNodeNumber + index}号`,
-        `第${existingSiblings.length + index + 1}个方向`
+        `第${isRefresh ? index + 1 : existingSiblings.length + index + 1}个方向`
       ],
       intentSummary: brief.intentSummary,
       formLanguage: brief.formLanguage,
@@ -354,16 +418,28 @@ async function persistExpandBranches(input: {
   await input.services.repositories.treeOperations.create({
     sessionId: input.session.id,
     taskId: input.task.id,
-    type: "expand_branches",
+    type: input.actionType,
     targetNodeId: input.task.targetNodeId,
-    targetLayerVersion: 1,
+    targetLayerVersion: nextLayerVersion,
     insertedNodeIds: nodes.map((node) => node.id),
-    supersededNodeIds: [],
+    supersededNodeIds,
     restoredNodeIds: [],
     payload: {
       branchCount: nodes.length
     }
   });
+
+  const operation =
+    await input.services.repositories.treeOperations.getLastUndoableBySessionId(
+      input.session.id
+    );
+
+  if (operation && supersededNodeIds.length > 0) {
+    await input.services.repositories.treeNodes.markSuperseded({
+      nodeIds: supersededNodeIds,
+      operationId: operation.id
+    });
+  }
 
   await input.services.repositories.sessions.updateAfterNodesCreated({
     sessionId: input.session.id,

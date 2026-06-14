@@ -22,6 +22,7 @@ interface MemoryStore {
   sessions: Map<string, Session>;
   messages: Message[];
   treeNodes: TreeNode[];
+  supersededNodeIds: Set<string>;
   generationTasks: Map<string, GenerationTask>;
   branchTasks: Map<string, BranchTask>;
   treeOperations: TreeOperation[];
@@ -36,6 +37,7 @@ function createStore(): MemoryStore {
     sessions: new Map(),
     messages: [],
     treeNodes: [],
+    supersededNodeIds: new Set(),
     generationTasks: new Map(),
     branchTasks: new Map(),
     treeOperations: []
@@ -49,6 +51,7 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
     sessions: seedStore?.sessions ?? new Map(),
     messages: seedStore?.messages ?? [],
     treeNodes: seedStore?.treeNodes ?? [],
+    supersededNodeIds: seedStore?.supersededNodeIds ?? new Set(),
     generationTasks: seedStore?.generationTasks ?? new Map(),
     branchTasks: seedStore?.branchTasks ?? new Map(),
     treeOperations: seedStore?.treeOperations ?? []
@@ -122,7 +125,10 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
     },
     treeNodes: {
       async listBySessionId(sessionId: string): Promise<TreeNode[]> {
-        return store.treeNodes.filter((node) => node.sessionId === sessionId);
+        return store.treeNodes.filter(
+          (node) =>
+            node.sessionId === sessionId && !store.supersededNodeIds.has(node.id)
+        );
       },
       async createMany(input: CreateTreeNodeInput[]): Promise<TreeNode[]> {
         const timestamp = nowIso();
@@ -152,6 +158,19 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
 
         store.treeNodes.push(...nodes);
         return nodes;
+      },
+      async markSuperseded(input: {
+        nodeIds: string[];
+        operationId: string;
+      }): Promise<void> {
+        for (const nodeId of input.nodeIds) {
+          store.supersededNodeIds.add(nodeId);
+        }
+      },
+      async restore(nodeIds: string[]): Promise<void> {
+        for (const nodeId of nodeIds) {
+          store.supersededNodeIds.delete(nodeId);
+        }
       }
     },
     generationTasks: {
@@ -288,6 +307,7 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
           type: input.type,
           targetNodeId: input.targetNodeId,
           targetLayerVersion: input.targetLayerVersion,
+          insertedNodeIds: input.insertedNodeIds,
           supersededNodeIds: input.supersededNodeIds,
           restoredNodeIds: input.restoredNodeIds,
           createdAt: nowIso()

@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import type { BranchTask, GenerationTask, Message, Session, TreeNode, TreeOperation, VisualDirectionBrief } from "@voice-industrial-design/shared";
@@ -122,9 +122,36 @@ function mapTreeOperation(row: typeof treeOperationsTable.$inferSelect): TreeOpe
     type: row.type as TreeOperation["type"],
     targetNodeId: row.targetNodeId,
     targetLayerVersion: row.targetLayerVersion,
+    insertedNodeIds: row.insertedNodeIds,
     supersededNodeIds: row.supersededNodeIds,
     restoredNodeIds: row.restoredNodeIds,
     createdAt: toIso(row.createdAt)
+  };
+}
+
+async function getGenerationTaskWithBranches(
+  db: ServerDatabase,
+  taskId: string
+): Promise<GenerationTask | null> {
+  const rows = await db
+    .select()
+    .from(generationTasksTable)
+    .where(eq(generationTasksTable.id, taskId))
+    .limit(1);
+
+  if (!rows[0]) {
+    return null;
+  }
+
+  const branchRows = await db
+    .select()
+    .from(branchTasksTable)
+    .where(eq(branchTasksTable.generationTaskId, taskId))
+    .orderBy(asc(branchTasksTable.branchIndex));
+
+  return {
+    ...mapGenerationTask(rows[0]),
+    branchTasks: branchRows.map(mapBranchTask)
   };
 }
 
@@ -209,7 +236,7 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .from(treeNodesTable)
           .where(eq(treeNodesTable.sessionId, sessionId))
           .orderBy(asc(treeNodesTable.depth), asc(treeNodesTable.layerOrdinal));
-        return rows.map(mapTreeNode);
+        return rows.filter((row) => row.supersededAt === null).map(mapTreeNode);
       },
       async createMany(input: CreateTreeNodeInput[]): Promise<TreeNode[]> {
         if (input.length === 0) {
@@ -244,6 +271,37 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           )
           .returning();
         return inserted.map(mapTreeNode);
+      },
+      async markSuperseded(input: {
+        nodeIds: string[];
+        operationId: string;
+      }): Promise<void> {
+        if (input.nodeIds.length === 0) {
+          return;
+        }
+
+        await db
+          .update(treeNodesTable)
+          .set({
+            supersededAt: new Date(),
+            supersededByOperationId: input.operationId,
+            updatedAt: new Date()
+          })
+          .where(inArray(treeNodesTable.id, input.nodeIds));
+      },
+      async restore(nodeIds: string[]): Promise<void> {
+        if (nodeIds.length === 0) {
+          return;
+        }
+
+        await db
+          .update(treeNodesTable)
+          .set({
+            supersededAt: null,
+            supersededByOperationId: null,
+            updatedAt: new Date()
+          })
+          .where(inArray(treeNodesTable.id, nodeIds));
       }
     },
     generationTasks: {
@@ -275,12 +333,7 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
         return mapGenerationTask(inserted[0]);
       },
       async getById(taskId: string): Promise<GenerationTask | null> {
-        const rows = await db
-          .select()
-          .from(generationTasksTable)
-          .where(eq(generationTasksTable.id, taskId))
-          .limit(1);
-        return rows[0] ? mapGenerationTask(rows[0]) : null;
+        return getGenerationTaskWithBranches(db, taskId);
       },
       async updateStatus(
         input: UpdateGenerationTaskStatusInput
@@ -294,7 +347,9 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           })
           .where(eq(generationTasksTable.id, input.taskId))
           .returning();
-        return updated[0] ? mapGenerationTask(updated[0]) : null;
+        return updated[0]
+          ? getGenerationTaskWithBranches(db, input.taskId)
+          : null;
       },
       async updateConfirmation(
         input: UpdateTaskConfirmationInput
@@ -309,7 +364,9 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           })
           .where(eq(generationTasksTable.id, input.taskId))
           .returning();
-        return updated[0] ? mapGenerationTask(updated[0]) : null;
+        return updated[0]
+          ? getGenerationTaskWithBranches(db, input.taskId)
+          : null;
       }
     },
     branchTasks: {

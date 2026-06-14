@@ -121,6 +121,11 @@ export interface ServerRepositories {
   treeNodes: {
     listBySessionId(sessionId: string): Promise<TreeNode[]>;
     createMany(input: CreateTreeNodeInput[]): Promise<TreeNode[]>;
+    markSuperseded(input: {
+      nodeIds: string[];
+      operationId: string;
+    }): Promise<void>;
+    restore(nodeIds: string[]): Promise<void>;
   };
   generationTasks: {
     create(input: CreateGenerationTaskInput): Promise<GenerationTask>;

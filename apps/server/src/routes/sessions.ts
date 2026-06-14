@@ -110,12 +110,18 @@ export async function registerSessionRoutes(
       targetNodeId: operation.targetNodeId,
       targetLayerVersion: operation.targetLayerVersion,
       insertedNodeIds: [],
-      supersededNodeIds: [],
+      supersededNodeIds: operation.insertedNodeIds,
       restoredNodeIds: operation.supersededNodeIds,
       payload: {
         undoTargetOperationId: operation.id
       }
     });
+
+    await services.repositories.treeNodes.markSuperseded({
+      nodeIds: operation.insertedNodeIds,
+      operationId: undoOperation.id
+    });
+    await services.repositories.treeNodes.restore(operation.supersededNodeIds);
 
     return {
       operation: undoOperation

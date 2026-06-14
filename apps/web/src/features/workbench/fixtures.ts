@@ -585,6 +585,7 @@ const treeOperations: Record<string, TreeOperation[]> = {
       type: "branch_deeper",
       targetNodeId: "node-3",
       targetLayerVersion: 1,
+      insertedNodeIds: ["node-6", "node-7", "node-8"],
       supersededNodeIds: [],
       restoredNodeIds: ["node-6", "node-7", "node-8"],
       createdAt: iso("00:02:28")
@@ -598,6 +599,7 @@ const treeOperations: Record<string, TreeOperation[]> = {
       type: "refresh_layer",
       targetNodeId: "root",
       targetLayerVersion: 2,
+      insertedNodeIds: ["node-9", "node-10", "node-11", "node-12"],
       supersededNodeIds: ["node-2", "node-3", "node-4", "node-5"],
       restoredNodeIds: ["node-9", "node-10", "node-11", "node-12"],
       createdAt: iso("00:04:18")
@@ -611,6 +613,7 @@ const treeOperations: Record<string, TreeOperation[]> = {
       type: "branch_deeper",
       targetNodeId: "node-3",
       targetLayerVersion: 1,
+      insertedNodeIds: ["node-6", "node-7", "node-8"],
       supersededNodeIds: [],
       restoredNodeIds: ["node-6", "node-7", "node-8"],
       createdAt: iso("00:02:28")
