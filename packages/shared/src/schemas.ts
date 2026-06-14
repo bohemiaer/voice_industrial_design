@@ -233,6 +233,7 @@ export const TreeOperationSchema = z.object({
   type: TreeOperationTypeSchema,
   targetNodeId: z.string().min(1),
   targetLayerVersion: z.number().int().positive().nullable(),
+  insertedNodeIds: z.array(z.string().min(1)),
   supersededNodeIds: z.array(z.string().min(1)),
   restoredNodeIds: z.array(z.string().min(1)),
   createdAt: IsoDateTimeSchema

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { ApiError } from "../errors.js";
+import type { Orchestrator } from "../orchestrator/service.js";
 import type { AppServices } from "../repositories/types.js";
 
 const createSessionSchema = z.object({
@@ -11,19 +12,34 @@ const createSessionSchema = z.object({
 
 const voiceTurnSchema = z.object({
   transcriptText: z.string().min(1),
-  targetNodeId: z.string().min(1).nullable(),
-  actionType: z.enum(["expand_branches", "refresh_layer", "branch_deeper"]),
-  branchCount: z.number().int().positive().max(4),
-  designIntentSummary: z.string().min(1),
-  assistantReply: z.string().min(1),
-  confirmationRequired: z.boolean(),
-  rewrittenIntentForConfirmation: z.string().min(1).optional()
+  targetNodeId: z.string().min(1).nullable()
 });
+
+type VoiceTurnInput = {
+  transcriptText?: string;
+  audio?: Buffer;
+  mimeType?: string;
+  targetNodeId: string | null;
+};
 
 export async function registerSessionRoutes(
   app: FastifyInstance,
-  services: AppServices
+  services: AppServices,
+  orchestrator: Orchestrator
 ): Promise<void> {
+  app.post("/api/transcriptions", async (request) => {
+    const input = await parseVoiceTurnRequest(request);
+    const transcript = await orchestrator.transcribeAudio({
+      transcriptText: input.transcriptText,
+      audio: input.audio,
+      mimeType: input.mimeType
+    });
+
+    return {
+      transcriptText: transcript.transcriptText
+    };
+  });
+
   app.post("/api/sessions", async (request, reply) => {
     const input = createSessionSchema.parse(request.body);
     const session = await services.repositories.sessions.create(input);
@@ -65,36 +81,13 @@ export async function registerSessionRoutes(
       throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
     }
 
-    const input = voiceTurnSchema.parse(request.body);
-    const targetNodeId =
-      input.targetNodeId ??
-      session.activeNodeId ??
-      session.lastMentionedNodeId ??
-      session.id;
-
-    const task = await services.repositories.generationTasks.create({
-      ...input,
-      rewrittenIntentForConfirmation:
-        input.rewrittenIntentForConfirmation ?? null,
+    const input = await parseVoiceTurnRequest(request);
+    const task = await orchestrator.processVoiceTurn({
       sessionId,
-      targetNodeId
-    });
-
-    await services.repositories.messages.create({
-      sessionId,
-      taskId: task.id,
-      role: "user",
-      kind: "transcript",
-      content: input.transcriptText
-    });
-
-    await services.repositories.messages.create({
-      sessionId,
-      taskId: task.id,
-      role: "assistant",
-      kind: input.confirmationRequired ? "confirmation" : "summary",
-      content:
-        input.rewrittenIntentForConfirmation ?? input.assistantReply
+      transcriptText: input.transcriptText,
+      audio: input.audio,
+      mimeType: input.mimeType,
+      targetNodeId: input.targetNodeId
     });
 
     return reply.status(202).send({
@@ -130,15 +123,86 @@ export async function registerSessionRoutes(
       targetNodeId: operation.targetNodeId,
       targetLayerVersion: operation.targetLayerVersion,
       insertedNodeIds: [],
-      supersededNodeIds: [],
+      supersededNodeIds: operation.insertedNodeIds,
       restoredNodeIds: operation.supersededNodeIds,
       payload: {
         undoTargetOperationId: operation.id
       }
     });
 
+    await services.repositories.treeNodes.markSuperseded({
+      nodeIds: operation.insertedNodeIds,
+      operationId: undoOperation.id
+    });
+    await services.repositories.treeNodes.restore(operation.supersededNodeIds);
+
     return {
       operation: undoOperation
     };
   });
+}
+
+async function parseVoiceTurnRequest(request: {
+  body: unknown;
+  isMultipart: () => boolean;
+  parts: () => AsyncIterable<
+    | {
+        type: "file";
+        fieldname: string;
+        mimetype: string;
+        toBuffer: () => Promise<Buffer>;
+      }
+    | {
+        type: "field";
+        fieldname: string;
+        value: unknown;
+      }
+  >;
+}): Promise<VoiceTurnInput> {
+  if (!request.isMultipart()) {
+    return voiceTurnSchema.parse(request.body);
+  }
+
+  let audio: Buffer | undefined;
+  let mimeType: string | undefined;
+  let targetNodeId: string | null = null;
+  let transcriptText: string | undefined;
+
+  for await (const part of request.parts()) {
+    if (part.type === "file" && part.fieldname === "audio") {
+      audio = await part.toBuffer();
+      mimeType = part.mimetype;
+      continue;
+    }
+
+    if (part.type === "field" && part.fieldname === "targetNodeId") {
+      targetNodeId =
+        typeof part.value === "string" && part.value.length > 0
+          ? part.value
+          : null;
+      continue;
+    }
+
+    if (part.type === "field" && part.fieldname === "transcriptText") {
+      transcriptText =
+        typeof part.value === "string" && part.value.length > 0
+          ? part.value
+          : undefined;
+    }
+  }
+
+  if (!audio && !transcriptText) {
+    throw new ApiError(
+      400,
+      "VOICE_TURN_INPUT_REQUIRED",
+      "Either audio or transcriptText is required"
+    );
+  }
+
+  return {
+    transcriptText,
+    audio,
+    mimeType,
+    targetNodeId
+  };
 }

@@ -6,7 +6,7 @@ const host = "0.0.0.0";
 async function start(): Promise<void> {
   const config = loadConfig();
   const app = await buildApp({
-    persistenceMode: "postgres"
+    persistenceMode: config.persistenceMode
   });
 
   try {

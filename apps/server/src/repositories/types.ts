@@ -1,5 +1,7 @@
 import type {
   BrainstormActionType,
+  BranchTask,
+  BranchTaskStatus,
   ConfirmationStatus,
   GenerationTask,
   Message,
@@ -8,7 +10,9 @@ import type {
   Session,
   TaskStatus,
   TreeNode,
-  TreeOperation
+  TreeNodeStatus,
+  TreeOperation,
+  VisualDirectionBrief
 } from "@voice-industrial-design/shared";
 
 export interface CreateSessionInput {
@@ -53,10 +57,63 @@ export interface CreateTreeOperationInput {
   payload: Record<string, unknown>;
 }
 
+export interface CreateTreeNodeInput {
+  sessionId: string;
+  parentNodeId: string | null;
+  createdFromTaskId: string | null;
+  depth: number;
+  layerOrdinal: number;
+  layerVersion: number;
+  publicNodeNumber: number;
+  displayName: string;
+  label: string;
+  voiceAliases: string[];
+  intentSummary: string;
+  formLanguage: string[];
+  userNeedResponse: string[];
+  inspirationHints: string[];
+  imageUrl: string | null;
+  status: TreeNodeStatus;
+}
+
+export interface CreateBranchTaskInput {
+  generationTaskId: string;
+  branchIndex: number;
+  brief: VisualDirectionBrief;
+  status: BranchTaskStatus;
+  imageUrl: string | null;
+  errorMessage: string | null;
+}
+
+export interface UpdateBranchTaskInput {
+  branchTaskId: string;
+  status: BranchTaskStatus;
+  imageUrl?: string | null;
+  persistedNodeId?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface UpdateGenerationTaskStatusInput {
+  taskId: string;
+  status: TaskStatus;
+  errorMessage?: string | null;
+}
+
+export interface UpdateSessionAfterNodesInput {
+  sessionId: string;
+  nextPublicNodeNumber: number;
+  goal?: string;
+  activeNodeId?: string | null;
+  lastMentionedNodeId?: string | null;
+}
+
 export interface ServerRepositories {
   sessions: {
     create(input: CreateSessionInput): Promise<Session>;
     getById(sessionId: string): Promise<Session | null>;
+    updateAfterNodesCreated(
+      input: UpdateSessionAfterNodesInput
+    ): Promise<Session | null>;
   };
   messages: {
     create(input: CreateMessageInput): Promise<Message>;
@@ -64,13 +121,26 @@ export interface ServerRepositories {
   };
   treeNodes: {
     listBySessionId(sessionId: string): Promise<TreeNode[]>;
+    createMany(input: CreateTreeNodeInput[]): Promise<TreeNode[]>;
+    markSuperseded(input: {
+      nodeIds: string[];
+      operationId: string;
+    }): Promise<void>;
+    restore(nodeIds: string[]): Promise<void>;
   };
   generationTasks: {
     create(input: CreateGenerationTaskInput): Promise<GenerationTask>;
     getById(taskId: string): Promise<GenerationTask | null>;
+    updateStatus(
+      input: UpdateGenerationTaskStatusInput
+    ): Promise<GenerationTask | null>;
     updateConfirmation(
       input: UpdateTaskConfirmationInput
     ): Promise<GenerationTask | null>;
+  };
+  branchTasks: {
+    create(input: CreateBranchTaskInput): Promise<BranchTask>;
+    update(input: UpdateBranchTaskInput): Promise<BranchTask | null>;
   };
   treeOperations: {
     create(input: CreateTreeOperationInput): Promise<TreeOperation>;

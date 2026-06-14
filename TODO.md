@@ -63,15 +63,15 @@
 
 - [x] 初始化 `apps/server`
 - [x] 搭建 `Fastify` 应用入口
-- [ ] 注册配置模块
+- [x] 注册配置模块
 - [ ] 注册数据库连接
 - [ ] 注册 Redis / BullMQ
 - [ ] 搭建基础日志和错误处理
 - [x] 定义 `sessions` 模块
 - [x] 定义 `tasks` 模块
 - [x] 定义 `tree` 模块
-- [ ] 定义 `orchestrator` 模块
-- [ ] 定义 `agents` 模块
+- [x] 定义 `orchestrator` 模块
+- [x] 定义 `agents` 模块
 - [ ] 定义 `media` 模块
 
 ## 5. 后端 API
@@ -89,86 +89,86 @@
 
 ## 6. Orchestrator 与任务状态机
 
-- [ ] 实现语音 turn 接收与任务创建
-- [ ] 实现 ASR 调用编排
-- [ ] 实现上下文收集：当前节点、祖先路径、兄弟节点摘要
-- [ ] 实现 Brainstorm Assistant 调用
-- [ ] 实现 assistant 输出 schema 校验
-- [ ] 实现高风险操作判断
-- [ ] 实现复述改写文本生成与 `awaiting_confirmation`
-- [ ] 实现确认后继续生成
-- [ ] 实现取消后只读结束
+- [x] 实现语音 turn 接收与任务创建
+- [x] 实现 ASR 调用编排
+- [x] 实现上下文收集：当前节点、祖先路径、兄弟节点摘要
+- [x] 实现 Brainstorm Assistant 调用
+- [x] 实现 assistant 输出 schema 校验
+- [x] 实现高风险操作判断
+- [x] 实现复述改写文本生成与 `awaiting_confirmation`
+- [x] 实现确认后继续生成
+- [x] 实现取消后只读结束
 - [ ] 实现 BranchTask 拆分与并发
-- [ ] 实现所有结果写回 session、message、task、tree
-- [ ] 为状态机写测试
+- [x] 实现所有结果写回 session、message、task、tree
+- [x] 为状态机写测试
 
 ## 7. 树写入与单次撤销
 
-- [ ] 实现 `expand_branches` 写树
-- [ ] 实现 `refresh_layer` 写树
-- [ ] 实现 `branch_deeper` 写树
-- [ ] 实现 `TreeOperation` 记录
-- [ ] 实现单次撤销的可撤销检查
+- [x] 实现 `expand_branches` 写树
+- [x] 实现 `refresh_layer` 写树
+- [x] 实现 `branch_deeper` 写树
+- [x] 实现 `TreeOperation` 记录
+- [x] 实现单次撤销的可撤销检查
 - [ ] 实现单次撤销的确认流程
-- [ ] 实现单次撤销的树恢复逻辑
-- [ ] 为写树与撤销写集成测试
+- [x] 实现单次撤销的树恢复逻辑
+- [x] 为写树与撤销写集成测试
 
 ## 8. 硅基流动模型接入
 
-- [ ] 实现 `SiliconFlowGateway`
-- [ ] 接入 `FunAudioLLM/SenseVoiceSmall`
-- [ ] 接入 `deepseek-ai/DeepSeek-V4-Flash`
-- [ ] 接入 `Tongyi-MAI/Z-Image-Turbo`
-- [ ] 实现 provider timeout / retry / parse guard
+- [x] 实现 `SiliconFlowGateway`
+- [x] 接入 `FunAudioLLM/SenseVoiceSmall`
+- [x] 接入 `deepseek-ai/DeepSeek-V4-Flash`
+- [x] 接入 `Tongyi-MAI/Z-Image-Turbo`
+- [x] 实现 provider timeout / retry / parse guard
 - [ ] 记录 prompt 与模型元数据
-- [ ] 为 provider 层准备 mock fixtures
+- [x] 为 provider 层准备 mock fixtures
 
 ## 9. 前端基础骨架
 
 - [x] 初始化 `apps/web`
 - [x] 搭建 `Next.js` 基础页面
 - [x] 接入基础样式
-- [ ] 接入 `React Flow`
-- [ ] 搭建 `Zustand` store
-- [ ] 定义服务端状态镜像结构
-- [ ] 定义本地 UI 状态结构
+- [x] 接入 `React Flow`
+- [x] 搭建 `Zustand` store
+- [x] 定义服务端状态镜像结构
+- [x] 定义本地 UI 状态结构
 
 ## 10. 前端核心组件
 
-- [ ] 实现 `TopBar`
-- [ ] 实现 `CanvasWorkspace`
-- [ ] 实现 `BrainstormNodeCard`
-- [ ] 实现 `ConversationPanel`
-- [ ] 实现 `CurrentTargetBanner`
-- [ ] 实现 `RecordingBar`
-- [ ] 实现 `IntentStatusCard`
-- [ ] 实现 `ConfirmationCard`
-- [ ] 实现运行中展开、完成后折叠的消息展示策略
-- [ ] 实现节点高亮与当前目标态
+- [x] 实现 `TopBar`
+- [x] 实现 `CanvasWorkspace`
+- [x] 实现 `BrainstormNodeCard`
+- [x] 实现 `ConversationPanel`
+- [x] 实现 `CurrentTargetBanner`
+- [x] 实现 `RecordingBar`
+- [x] 实现 `IntentStatusCard`
+- [x] 实现 `ConfirmationCard`
+- [x] 实现运行中展开、完成后折叠的消息展示策略
+- [x] 实现节点高亮与当前目标态
 
 ## 11. Mock 页面与交互
 
 - [x] 用 mock 数据跑通首轮生成页面
 - [x] 用 mock 数据跑通高风险确认页面
-- [ ] 用 mock 数据跑通单次撤销页面
+- [x] 用 mock 数据跑通单次撤销页面
 - [x] 用 mock 数据跑通节点选中页面
-- [ ] 准备演示用 fixture：首层 4 个方向、下钻 3 个方向、刷新当前层结果
+- [x] 准备演示用 fixture：首层 4 个方向、下钻 3 个方向、刷新当前层结果
 
 ## 12. 前后端联调
 
-- [ ] 用真实 API 替换 session mock
-- [ ] 用真实 API 替换 tree mock
-- [ ] 用真实 API 替换 message mock
-- [ ] 用真实 API 替换 task mock
-- [ ] 接通 confirm / cancel / undo
-- [ ] 接通真实录音上传
-- [ ] 确认 `awaiting_confirmation` 页面状态正确
-- [ ] 确认 branch 部分失败可以正确展示
+- [x] 用真实 API 替换 session mock
+- [x] 用真实 API 替换 tree mock
+- [x] 用真实 API 替换 message mock
+- [x] 用真实 API 替换 task mock
+- [x] 接通 confirm / cancel / undo
+- [x] 接通真实录音上传
+- [x] 确认 `awaiting_confirmation` 页面状态正确
+- [x] 确认 branch 部分失败可以正确展示
 
 ## 13. 测试与验收
 
 - [ ] 跑通 shared schema 测试
-- [ ] 跑通后端集成测试
+- [x] 跑通后端集成测试
 - [ ] 跑通前端组件测试
 - [ ] 跑通首轮生成 e2e
 - [ ] 跑通高风险确认 e2e
