@@ -8,6 +8,7 @@ export interface AppConfig {
   nodeEnv: string;
   serverPort: number;
   databaseUrl: string | null;
+  persistenceMode: PersistenceMode;
   agentProvider: AgentProvider;
   siliconFlowApiKey: string | null;
   siliconFlowBaseUrl: string | null;
@@ -27,6 +28,22 @@ function parseAgentProvider(value: string | undefined): AgentProvider {
   return "mock";
 }
 
+function parsePersistenceMode(
+  value: string | undefined,
+  databaseUrl: string | null,
+  nodeEnv: string
+): PersistenceMode {
+  if (value === "memory" || value === "postgres") {
+    return value;
+  }
+
+  if (databaseUrl || nodeEnv === "production") {
+    return "postgres";
+  }
+
+  return "memory";
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   envFilePath = resolve(process.cwd(), ".env")
@@ -37,10 +54,18 @@ export function loadConfig(
     ...env
   };
 
+  const nodeEnv = mergedEnv.NODE_ENV ?? "development";
+  const databaseUrl = mergedEnv.DATABASE_URL ?? null;
+
   return {
-    nodeEnv: mergedEnv.NODE_ENV ?? "development",
+    nodeEnv,
     serverPort: Number(mergedEnv.SERVER_PORT ?? 8787),
-    databaseUrl: mergedEnv.DATABASE_URL ?? null,
+    databaseUrl,
+    persistenceMode: parsePersistenceMode(
+      mergedEnv.PERSISTENCE_MODE,
+      databaseUrl,
+      nodeEnv
+    ),
     agentProvider: parseAgentProvider(mergedEnv.AGENT_PROVIDER),
     siliconFlowApiKey: mergedEnv.SILICONFLOW_API_KEY ?? null,
     siliconFlowBaseUrl: mergedEnv.SILICONFLOW_BASE_URL ?? null,

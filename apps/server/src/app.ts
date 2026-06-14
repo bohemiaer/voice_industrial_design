@@ -22,7 +22,7 @@ export async function buildApp(
   options: BuildAppOptions = {}
 ): Promise<FastifyInstance> {
   const config = loadConfig();
-  const persistenceMode = options.persistenceMode ?? "postgres";
+  const persistenceMode = options.persistenceMode ?? config.persistenceMode;
   const app = Fastify({
     logger: true
   });

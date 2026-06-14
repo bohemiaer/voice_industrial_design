@@ -37,3 +37,29 @@ test("loadConfig reads SiliconFlow settings from a dotenv file", async () => {
   assert.equal(config.siliconFlowBrainstormModel, "brainstorm-model");
   assert.equal(config.siliconFlowImageModel, "image-model");
 });
+
+test("loadConfig selects a preview-friendly persistence mode", async () => {
+  const { loadConfig } = await import(`${configEntry}?persistence=${Date.now()}`);
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "voice-config-"));
+  const envPath = path.join(tempDir, ".env");
+  await fs.writeFile(envPath, "");
+
+  assert.equal(
+    loadConfig({ NODE_ENV: "development" }, envPath).persistenceMode,
+    "memory"
+  );
+  assert.equal(
+    loadConfig({
+      NODE_ENV: "development",
+      DATABASE_URL: "postgresql://example"
+    }, envPath).persistenceMode,
+    "postgres"
+  );
+  assert.equal(
+    loadConfig({
+      NODE_ENV: "development",
+      PERSISTENCE_MODE: "postgres"
+    }, envPath).persistenceMode,
+    "postgres"
+  );
+});
