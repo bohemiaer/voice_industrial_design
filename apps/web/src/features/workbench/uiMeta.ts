@@ -4,13 +4,13 @@ import type { NodePalette, NodeUiMeta } from "./types";
 
 const paletteCycle: NodePalette[] = ["teal", "amber", "blue", "sand", "mist"];
 const nodeHorizontalGap = 360;
-const nodeVerticalGap = 360;
+const nodeVerticalGap = 320;
 const nodeOrigin = { x: 80, y: 70 };
 
 export function createNodePosition(depth: number, ordinal: number) {
   return {
-    x: nodeOrigin.x + depth * nodeHorizontalGap,
-    y: nodeOrigin.y + (ordinal - 1) * nodeVerticalGap
+    x: nodeOrigin.x + (ordinal - 1) * nodeHorizontalGap,
+    y: nodeOrigin.y + depth * nodeVerticalGap
   };
 }
 

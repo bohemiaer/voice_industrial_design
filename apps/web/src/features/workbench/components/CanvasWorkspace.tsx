@@ -174,8 +174,8 @@ export function CanvasWorkspace() {
         id: node.id,
         type: "brainstorm",
         position: createNodePosition(node.depth, visibleOrdinal),
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
+        sourcePosition: Position.Bottom,
+        targetPosition: Position.Top,
         selected: uiState.selectedNodeId === node.id,
         data: {
           node,

@@ -96,15 +96,17 @@ test("frontend workbench uses react flow and zustand", () => {
   assert.doesNotMatch(viewportRule, /padding-left/);
 });
 
-test("canvas keeps generated nodes visible without obsolete toolbar entries", () => {
+test("canvas lays out generated nodes as a vertical tree without obsolete toolbar entries", () => {
   assert.match(canvasWorkspaceSource, /useReactFlow/);
   assert.match(canvasWorkspaceSource, /flowNodeIds/);
   assert.match(canvasWorkspaceSource, /fitView\(\{ padding: 0\.2, minZoom: 0\.48, maxZoom: 0\.88, duration: 420 \}\)/);
+  assert.match(canvasWorkspaceSource, /sourcePosition: Position\.Bottom/);
+  assert.match(canvasWorkspaceSource, /targetPosition: Position\.Top/);
   assert.doesNotMatch(canvasWorkspaceSource, /label: "面板"/);
   assert.doesNotMatch(canvasWorkspaceSource, /label: "灵感"/);
   assert.match(canvasWorkspaceSource, /selectionCursor/);
-  assert.match(uiMetaSource, /const nodeVerticalGap = 360/);
-  assert.match(uiMetaSource, /const nodeHorizontalGap = 360/);
+  assert.match(uiMetaSource, /x: nodeOrigin\.x \+ \(ordinal - 1\) \* nodeHorizontalGap/);
+  assert.match(uiMetaSource, /y: nodeOrigin\.y \+ depth \* nodeVerticalGap/);
 });
 
 test("frontend workbench defines server mirror and local ui state structures", () => {
