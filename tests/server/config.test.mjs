@@ -18,7 +18,7 @@ test("loadConfig reads SiliconFlow settings from a dotenv file", async () => {
     [
       "AGENT_PROVIDER=siliconflow",
       "SILICONFLOW_API_KEY=test-key",
-      "SILICONFLOW_BASE_URL=https://api.example.test/v1/chat/completions",
+      "SILICONFLOW_BASE_URL=https://api.example.test/v1",
       "SILICONFLOW_ASR_MODEL=asr-model",
       "SILICONFLOW_BRAINSTORM_MODEL=brainstorm-model",
       "SILICONFLOW_IMAGE_MODEL=image-model"
@@ -31,7 +31,7 @@ test("loadConfig reads SiliconFlow settings from a dotenv file", async () => {
   assert.equal(config.siliconFlowApiKey, "test-key");
   assert.equal(
     config.siliconFlowBaseUrl,
-    "https://api.example.test/v1/chat/completions"
+    "https://api.example.test/v1"
   );
   assert.equal(config.siliconFlowAsrModel, "asr-model");
   assert.equal(config.siliconFlowBrainstormModel, "brainstorm-model");

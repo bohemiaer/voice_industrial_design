@@ -116,12 +116,12 @@
 ## 8. 硅基流动模型接入
 
 - [x] 实现 `SiliconFlowGateway`
-- [ ] 接入 `FunAudioLLM/SenseVoiceSmall`
-- [ ] 接入 `deepseek-ai/DeepSeek-V4-Flash`
-- [ ] 接入 `Tongyi-MAI/Z-Image-Turbo`
-- [ ] 实现 provider timeout / retry / parse guard
+- [x] 接入 `FunAudioLLM/SenseVoiceSmall`
+- [x] 接入 `deepseek-ai/DeepSeek-V4-Flash`
+- [x] 接入 `Tongyi-MAI/Z-Image-Turbo`
+- [x] 实现 provider timeout / retry / parse guard
 - [ ] 记录 prompt 与模型元数据
-- [ ] 为 provider 层准备 mock fixtures
+- [x] 为 provider 层准备 mock fixtures
 
 ## 9. 前端基础骨架
 
