@@ -1,23 +1,22 @@
 # Voice Industrial Design
 
-一个面向工业设计前期发散场景的纯语音脑暴工作台。用户不依赖鼠标和键盘文字输入，只通过语音描述需求、选择方向、确认高风险操作和撤销最近一次树操作，让模糊需求逐步长成一棵概念草图树。
+一个面向工业设计前期发散场景的纯语音脑暴工作台。用户不依赖鼠标和键盘做主要输入，只通过语音描述目标、选择方向、确认高风险树操作，并在需要时撤销最近一次已确认操作，让模糊需求逐步长成一棵概念草图树。
 
-## 当前阶段
+## 项目现状
 
-当前仓库处于比赛开发早期阶段，已经完成：
+当前仓库已经具备一套可继续迭代的 monorepo 基线，包含：
 
-- 需求文档、技术方案、Agent PRD、实施计划
-- 比赛提交策略与 PR 计划
-- 一版 HTML 预览工作台原型
-- monorepo 基础工程结构初始化
-- `packages/shared` 的首版共享 schema、常量与测试
-- `apps/server` 的首版 `Fastify + Drizzle` 运行时与基础 API
+- `apps/web`：Next.js 工作台页面骨架，已接入会话初始化、状态管理和画布基础布局
+- `apps/server`：Fastify 服务端、基础路由、配置读取、agent gateway 与 orchestrator 起步实现
+- `packages/shared`：共享 schema、常量和类型导出
+- `preview/`：独立 HTML 预览工作台原型
+- `tests/`：预览、workspace、shared schema、server API 与 SiliconFlow gateway 测试
 
-当前仓库已经补齐 `apps/web`、`apps/server`、`packages/shared` 的基础骨架，并完成了首版共享 schema 建模；主分支目前可复现的是文档基线、静态工作台预览、monorepo 初始化结构和 shared contracts。
+当前后端已经从“前端直接提交 agent 结果”的占位形态，推进到由 server orchestrator 自主调用 agent gateway、校验结构化输出，并写入首轮 `expand_branches` 分支结果。默认测试使用 memory persistence 和 mock provider，不依赖真实外部模型调用。
 
 ## MVP 范围
 
-当前 MVP 计划实现：
+当前 MVP 计划覆盖：
 
 - 纯语音工作台
 - 树状概念分支画布
@@ -31,181 +30,228 @@
 
 - 多人协作
 - 高保真渲染
-- CAD / 建模链路集成
+- CAD 或建模链路集成
 - 鼠标驱动的复杂白板编辑
 - 键盘文字输入作为主要创作路径
 - 视觉 review 主链路
 
-## 原创功能范围
+## 技术栈
 
-本项目的原创功能重点为：
-
-- 纯语音交互闭环
-- 树状态写入与版本化层替换
-- 节点命名与数字序号引用
-- 高风险树操作确认机制
-- 单次撤销语义与回滚逻辑
-
-第三方框架和模型服务仅作为基础设施，不替代上述核心交互与产品逻辑设计。
-
-## 计划技术栈
-
-以下为当前文档已经冻结、后续将逐步接入仓库的技术选型：
-
-- 前端：`Next.js`、`TypeScript`、`React Flow`、`Zustand`
+- 前端：`Next.js 14`、`React 18`、`TypeScript`、`@xyflow/react`、`Zustand`
 - 后端：`Fastify`、`TypeScript`
-- 数据层：`PostgreSQL`、`Redis`、`BullMQ`
-- Query Builder：`Drizzle`
-- 校验与测试：`Zod`、`Vitest`、`Playwright`
-- 模型服务：硅基流动（SiliconFlow）
+- 共享层：`Zod`
+- 数据层规划：`PostgreSQL`、`Redis`、`BullMQ`、`Drizzle ORM`
+- 测试：`node:test`
+- 模型服务规划：SiliconFlow
   - `FunAudioLLM/SenseVoiceSmall`
   - `deepseek-ai/DeepSeek-V4-Flash`
   - `Tongyi-MAI/Z-Image-Turbo`
 
-说明：
-
-- 当前仓库已经引入 workspace 和 shared schema 所需的基础依赖。
-- 本阶段提交的重点是文档基线、预览原型、工程骨架和共享 contracts。
-- 后续 PR 会逐步把上述技术栈落到真实业务实现中。
-
-## 规划中的目录结构
-
-当前已冻结的单仓库结构如下，当前仓库已完成其中的基础目录与入口文件初始化：
+## 目录结构
 
 ```text
 voice-painting/
   apps/
-    web/
     server/
-  packages/
-    shared/
-  infra/
-    migrations/
+    web/
   docs/
     superpowers/
-      specs/
       plans/
+      specs/
+  infra/
+  packages/
+    shared/
   preview/
   tests/
 ```
 
+## 快速开始
+
+### 1. 安装依赖
+
+```powershell
+corepack pnpm install
+```
+
+### 2. 准备环境变量
+
+```powershell
+Copy-Item .env.example .env
+```
+
+默认本地开发可直接使用：
+
+- `PERSISTENCE_MODE=memory`
+- `AGENT_PROVIDER=mock`
+- `SERVER_PORT=8787`
+
+这意味着即使没有 PostgreSQL、Redis 或 SiliconFlow API Key，也可以先跑通当前骨架和测试。
+
+### 3. 启动前后端
+
+```powershell
+corepack pnpm dev
+```
+
+也可以分别启动：
+
+```powershell
+corepack pnpm dev:web
+corepack pnpm dev:server
+```
+
+默认访问地址：
+
+- Web：`http://localhost:3000`
+- Server：`http://localhost:8787`
+
 ## 当前可运行内容
 
-### 1. 查看静态预览
+### Web 工作台骨架
 
-当前可以直接打开：
+`apps/web` 已经接入：
 
-- `D:\Users\HCI_lab\Documents\voice-painting\preview\index.html`
+- 页面级工作台布局
+- 会话初始化
+- React Flow 画布容器
+- 会话状态与 API 状态展示
 
-也可以在仓库根目录启动一个静态文件服务，例如：
+### Server API 骨架
+
+`apps/server` 当前已提供并经过测试的能力包括：
+
+- `GET /health`
+- `POST /api/sessions`
+- `GET /api/sessions/:sessionId/tree`
+- `GET /api/sessions/:sessionId/messages`
+- `POST /api/sessions/:sessionId/voice-turns`
+- `GET /api/tasks/:taskId`
+- `POST /api/tasks/:taskId/confirm`
+- `POST /api/tasks/:taskId/cancel`
+
+其中语音回合链路已经覆盖：
+
+- transcript 驱动的后端编排
+- mock agent gateway 输出结构化脑暴结果
+- `expand_branches` 首轮写树
+- 高风险操作确认 / 取消状态流转
+
+### 静态预览原型
+
+可以直接打开 [preview/index.html](./preview/index.html)，或在仓库根目录启动静态服务：
 
 ```powershell
 python -m http.server 4173
 ```
 
-然后访问：
+然后访问 [http://localhost:4173/preview/index.html](http://localhost:4173/preview/index.html)。
 
-- [http://localhost:4173/preview/index.html](http://localhost:4173/preview/index.html)
-
-### 2. 运行预览测试
+## 常用命令
 
 ```powershell
-node --test tests/preview/workbench-preview.test.mjs
+corepack pnpm dev
+corepack pnpm build
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm test:server
+corepack pnpm test:web
+corepack pnpm test:preview
+corepack pnpm test:workspace
+corepack pnpm test:shared
 ```
 
-预期结果：
+## 测试说明
 
-- 预览页面结构测试通过
-
-### 3. 运行 workspace 结构测试
+### 运行完整测试
 
 ```powershell
-node --test tests/workspace/monorepo-scaffold.test.mjs
+corepack pnpm test
 ```
 
-预期结果：
+当前会执行：
 
-- monorepo 基础结构测试通过
+- 预览结构测试
+- workspace 结构测试
+- shared schema 测试
+- server API 测试
+- server 配置测试
+- SiliconFlow gateway 测试
 
-### 4. 运行 shared schema 测试
-
-在编译 `packages/shared` 后，可运行：
+### 单独运行后端测试
 
 ```powershell
-corepack pnpm --filter @voice-industrial-design/shared build
-node --test tests/workspace/shared-schema.test.mjs
+corepack pnpm test:server
 ```
 
-预期结果：
+后端测试默认使用：
 
-- shared schema 构建成功
-- shared schema 解析测试通过
+- memory persistence
+- mock agent gateway
 
-### 5. 使用 pnpm 查看工程骨架
+因此不会触发真实的 SiliconFlow 网络请求。
 
-安装依赖后，可以分别启动工作台和服务端占位工程：
+## 环境变量
 
-```powershell
-corepack pnpm install
-corepack pnpm dev:web
-corepack pnpm dev:server
+根目录 `.env.example` 当前包含以下核心配置：
+
+```text
+NODE_ENV=development
+WEB_PORT=3000
+SERVER_PORT=8787
+PERSISTENCE_MODE=memory
+AGENT_PROVIDER=mock
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voice_painting
+REDIS_URL=redis://localhost:6379
+SILICONFLOW_API_KEY=your_siliconflow_api_key
+SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+SILICONFLOW_ASR_MODEL=FunAudioLLM/SenseVoiceSmall
+SILICONFLOW_BRAINSTORM_MODEL=deepseek-ai/DeepSeek-V4-Flash
+SILICONFLOW_IMAGE_MODEL=Tongyi-MAI/Z-Image-Turbo
+DEFAULT_BRANCH_COUNT=4
+MAX_BRANCH_COUNT=4
+SESSION_DOMAIN=industrial_design
 ```
 
-## 后续本地开发方式
+当前行为说明：
 
-完整 MVP 工程启动后，开发方式固定为：
+- 当 `AGENT_PROVIDER=mock` 时，服务端使用本地 mock provider
+- 当 `AGENT_PROVIDER=siliconflow` 时，服务端会切换到真实 SiliconFlow provider adapter
+- 当 `PERSISTENCE_MODE=memory` 时，当前数据不会持久化到 PostgreSQL
+- 当设置 `DATABASE_URL` 或在生产环境运行时，服务端会优先走 `postgres` 模式
 
-- 应用本地运行
-- `PostgreSQL` 与 `Redis` 使用 Docker
+## 第三方服务
 
-根目录已经预留：
+如需接入真实 SiliconFlow，需要：
 
-- `.env.example`
-- `docker-compose.yml`
-
-当前已经完成 monorepo 初始化、shared schema 和第一版数据库 DDL 设计草案；后续 PR 将在此基础上逐步补充正式 migration、API 和真实模型接入。
-
-## 第三方服务与依赖说明
-
-### 硅基流动（SiliconFlow）
-
-后续真实模型接入需要：
-
-1. 注册硅基流动账号
+1. 注册 SiliconFlow 账号
 2. 创建 API Key
-3. 将 Key 写入本地环境变量
+3. 将 Key 写入根目录 `.env`
+4. 把 `AGENT_PROVIDER` 切换为 `siliconflow`
 
-当前计划使用：
+当前计划模型分工：
 
-- `FunAudioLLM/SenseVoiceSmall` 负责语音转写
-- `deepseek-ai/DeepSeek-V4-Flash` 负责语音理解与结构化脑暴
-- `Tongyi-MAI/Z-Image-Turbo` 负责草图生成
+- `FunAudioLLM/SenseVoiceSmall`：语音转写
+- `deepseek-ai/DeepSeek-V4-Flash`：语音理解与结构化脑暴
+- `Tongyi-MAI/Z-Image-Turbo`：概念草图生成
 
-### 其他依赖
+## 已知未完成项
 
-后续如引入新的第三方库，会在对应 PR 描述和本 README 中同步补充说明。
-
-## 已知未完成项与原因
-
-当前尚未完成：
-
-- `apps/web` 与 `apps/server` 的真实业务实现
-- `packages/shared` 的更细粒度 domain schema 拆分
-- 完整数据库 migration、repository 事务化写树与 orchestrator
-- 硅基流动真实模型接入
-- 前后端联调与单次撤销闭环
-
-原因：
-
-- 当前阶段优先满足比赛对“持续交付、PR 记录清晰、文档和实现路径明确”的要求
-- 先冻结产品、技术、提交流程和目录结构，避免后续返工
+- multipart 音频上传解析
+- Redis / BullMQ 异步 worker
+- `packages/shared` 更细粒度的 domain schema 拆分
+- `refresh_layer` 与 `branch_deeper` 的完整树写入
+- 单次撤销的完整恢复逻辑
+- SiliconFlow 真实线上联调
+- 前后端联调后的完整语音闭环
 
 ## 文档索引
 
-- [需求文档](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\需求文档.md)
-- [技术方案](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\技术方案.md)
-- [Agent PRD](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\agent-PRD.md)
-- [数据库与持久层设计](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\specs\数据库与持久层设计.md)
-- [MVP 实施计划](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\plans\2026-06-12-voice-brainstorm-mvp-implementation-plan.md)
-- [比赛 PR 计划](D:\Users\HCI_lab\Documents\voice-painting\docs\superpowers\plans\2026-06-12-contest-pr-plan.md)
-- [开发 TODO](D:\Users\HCI_lab\Documents\voice-painting\TODO.md)
+- [需求文档](./docs/superpowers/specs/需求文档.md)
+- [技术方案](./docs/superpowers/specs/技术方案.md)
+- [Agent PRD](./docs/superpowers/specs/agent-PRD.md)
+- [数据库与持久层设计](./docs/superpowers/specs/数据库与持久层设计.md)
+- [测试文档](./docs/superpowers/specs/测试文档.md)
+- [MVP 实施计划](./docs/superpowers/plans/2026-06-12-voice-brainstorm-mvp-implementation-plan.md)
+- [比赛 PR 计划](./docs/superpowers/plans/2026-06-12-contest-pr-plan.md)
+- [HTML 预览计划](./docs/superpowers/plans/2026-06-12-html-preview-workbench.md)
+- [开发 TODO](./TODO.md)
