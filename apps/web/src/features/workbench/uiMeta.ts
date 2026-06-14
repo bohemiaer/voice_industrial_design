@@ -3,11 +3,18 @@ import type { TreeNode } from "@voice-industrial-design/shared";
 import type { NodePalette, NodeUiMeta } from "./types";
 
 const paletteCycle: NodePalette[] = ["teal", "amber", "blue", "sand", "mist"];
+const nodeHorizontalGap = 360;
+const nodeVerticalGap = 360;
+const nodeOrigin = { x: 80, y: 70 };
+
+export function createNodePosition(depth: number, ordinal: number) {
+  return {
+    x: nodeOrigin.x + depth * nodeHorizontalGap,
+    y: nodeOrigin.y + (ordinal - 1) * nodeVerticalGap
+  };
+}
 
 export function createNodeUiMeta(node: TreeNode, index: number): NodeUiMeta {
-  const siblingsOffset = node.layerOrdinal - 1;
-  const depthOffset = node.depth;
-
   return {
     palette: paletteCycle[index % paletteCycle.length],
     prompts: [
@@ -15,9 +22,6 @@ export function createNodeUiMeta(node: TreeNode, index: number): NodeUiMeta {
       `刷新节点 ${node.publicNodeNumber} 所在这一层`,
       "撤销上一步树操作"
     ],
-    position: {
-      x: 80 + depthOffset * 300,
-      y: 70 + siblingsOffset * 190
-    }
+    position: createNodePosition(node.depth, node.layerOrdinal)
   };
 }

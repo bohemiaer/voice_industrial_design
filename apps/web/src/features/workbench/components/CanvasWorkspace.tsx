@@ -1,8 +1,9 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import {
   Background,
   Position,
   ReactFlow,
+  useReactFlow,
   type Edge,
   type EdgeTypes,
   type NodeTypes
@@ -10,7 +11,7 @@ import {
 
 import { useWorkbenchStore } from "../store";
 import type { NodePalette } from "../types";
-import { createNodeUiMeta } from "../uiMeta";
+import { createNodePosition, createNodeUiMeta } from "../uiMeta";
 import {
   BrainstormNodeCard,
   type BrainstormFlowNode
@@ -27,11 +28,9 @@ const connectorPalette: Record<NodePalette, string> = {
 };
 
 const toolbarItems = [
-  { label: "指针", icon: "pointer", active: true },
+  { label: "指针", icon: "selectionCursor", active: true },
   { label: "拖拽", icon: "hand" },
-  { label: "框选", icon: "frame" },
-  { label: "灵感", icon: "spark" },
-  { label: "面板", icon: "panel" }
+  { label: "框选", icon: "frame" }
 ];
 
 const zoomItems = [
@@ -67,9 +66,14 @@ function ToolbarGlyph({ icon }: { icon: string }) {
   };
 
   const paths: Record<string, JSX.Element> = {
-    pointer: (
+    selectionCursor: (
       <svg {...commonProps}>
-        <path d="M5 3l7 8-3 .5L10.5 16 8 14l-1.5-4L3 10z" />
+        <path d="M4 4h5" />
+        <path d="M4 4v5" />
+        <path d="M16 16h-5" />
+        <path d="M16 16v-5" />
+        <path d="M7 10h6" />
+        <path d="M10 7v6" />
       </svg>
     ),
     hand: (
@@ -85,17 +89,6 @@ function ToolbarGlyph({ icon }: { icon: string }) {
         <path d="M12 5h3v3" />
         <path d="M15 13v2h-3" />
         <path d="M8 15H5v-3" />
-      </svg>
-    ),
-    spark: (
-      <svg {...commonProps}>
-        <path d="M10 3l1.2 3.8L15 8l-3.8 1.2L10 13l-1.2-3.8L5 8l3.8-1.2z" />
-      </svg>
-    ),
-    panel: (
-      <svg {...commonProps}>
-        <rect x="4" y="4" width="12" height="12" rx="2" />
-        <path d="M8 4v12" />
       </svg>
     ),
     minus: (
@@ -134,10 +127,10 @@ function ToolbarGlyph({ icon }: { icon: string }) {
 }
 
 export function CanvasWorkspace() {
-  const fixture = useWorkbenchStore((state) => state.fixture);
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
   const selectNode = useWorkbenchStore((state) => state.selectNode);
+  const { fitView } = useReactFlow();
 
   const childMap = useMemo(() => {
     return serverState.nodes.reduce<Record<string, string[]>>((acc, node) => {
@@ -151,14 +144,36 @@ export function CanvasWorkspace() {
     }, {});
   }, [serverState.nodes]);
 
+  const visibleOrdinalByNodeId = useMemo(() => {
+    const depthCounts = new Map<number, number>();
+    const ordinals = new Map<string, number>();
+
+    [...serverState.nodes]
+      .sort((left, right) => {
+        if (left.depth !== right.depth) {
+          return left.depth - right.depth;
+        }
+
+        return left.layerOrdinal - right.layerOrdinal;
+      })
+      .forEach((node) => {
+        const nextOrdinal = (depthCounts.get(node.depth) ?? 0) + 1;
+        depthCounts.set(node.depth, nextOrdinal);
+        ordinals.set(node.id, nextOrdinal);
+      });
+
+    return ordinals;
+  }, [serverState.nodes]);
+
   const nodes = useMemo<BrainstormFlowNode[]>(() => {
     return serverState.nodes.map((node, index) => {
-      const meta = fixture.nodeUiMeta[node.id] ?? createNodeUiMeta(node, index);
+      const meta = createNodeUiMeta(node, index);
+      const visibleOrdinal = visibleOrdinalByNodeId.get(node.id) ?? node.layerOrdinal;
 
       return {
         id: node.id,
         type: "brainstorm",
-        position: meta.position,
+        position: createNodePosition(node.depth, visibleOrdinal),
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         selected: uiState.selectedNodeId === node.id,
@@ -172,18 +187,33 @@ export function CanvasWorkspace() {
         }
       };
     });
-  }, [childMap, fixture.nodeUiMeta, selectNode, serverState.nodes, uiState.currentTargetNodeId, uiState.selectedNodeId]);
+  }, [
+    childMap,
+    selectNode,
+    serverState.nodes,
+    uiState.currentTargetNodeId,
+    uiState.selectedNodeId,
+    visibleOrdinalByNodeId
+  ]);
+
+  const flowNodeIds = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
+
+  useEffect(() => {
+    const fitViewTimer = window.setTimeout(() => {
+      fitView({ padding: 0.2, minZoom: 0.48, maxZoom: 0.88, duration: 420 });
+    }, 80);
+
+    return () => window.clearTimeout(fitViewTimer);
+  }, [fitView, flowNodeIds]);
 
   const edges = useMemo<Edge[]>(() => {
     return serverState.nodes
       .filter((node) => node.parentNodeId)
       .map((node) => {
-        const meta =
-          fixture.nodeUiMeta[node.id] ??
-          createNodeUiMeta(
-            node,
-            serverState.nodes.findIndex((candidate) => candidate.id === node.id)
-          );
+        const meta = createNodeUiMeta(
+          node,
+          serverState.nodes.findIndex((candidate) => candidate.id === node.id)
+        );
 
         return {
           id: `${node.parentNodeId}-${node.id}`,
@@ -198,7 +228,7 @@ export function CanvasWorkspace() {
           animated: node.status === "generating"
         };
       });
-  }, [fixture.nodeUiMeta, serverState.nodes, uiState.currentTargetNodeId]);
+  }, [serverState.nodes, uiState.currentTargetNodeId]);
 
   return (
     <section className="workspace-pane" data-testid="canvas-panel">

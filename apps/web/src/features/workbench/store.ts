@@ -38,6 +38,7 @@ type WorkbenchStore = {
 };
 
 const initialFixture = workbenchFixtureMap["branch-review"];
+const initialTimestamp = "2026-06-14T00:00:00.000+08:00";
 
 const applyFixture = (fixture: WorkbenchFixture) => ({
   fixture,
@@ -52,12 +53,40 @@ const applyFixture = (fixture: WorkbenchFixture) => ({
   }
 });
 
+const initialServerState: WorkbenchServerState = {
+  session: {
+    id: "pending-api-session",
+    title: "AI 语音工业设计脑暴",
+    goal: "围绕桌面智能设备生成早期工业设计方向",
+    productDomain: "industrial_design",
+    activeNodeId: null,
+    pendingNodeId: null,
+    lastMentionedNodeId: null,
+    nextPublicNodeNumber: 1,
+    createdAt: initialTimestamp,
+    updatedAt: initialTimestamp
+  },
+  nodes: [],
+  messages: [],
+  generationTasks: [],
+  treeOperations: []
+};
+
 const initialState = {
-  ...applyFixture(initialFixture),
+  fixture: initialFixture,
+  serverState: initialServerState,
   uiState: {
-    ...applyFixture(initialFixture).uiState,
+    selectedNodeId: "",
+    activeScenarioId: "first-layer" as const,
     dataMode: "api" as const,
-    apiStatus: "idle" as const
+    apiSessionId: null,
+    apiStatus: "idle" as const,
+    apiError: null,
+    expandedSystemMessageIds: [],
+    recordingState: "idle" as const,
+    currentTargetNodeId: null,
+    pendingAction: null,
+    lastActionSummary: "正在连接真实 API。"
   }
 };
 

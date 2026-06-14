@@ -1,29 +1,17 @@
-import type { WorkbenchDataMode, WorkbenchScenarioId, WorkbenchUiState } from "../types";
-
-type ScenarioOption = {
-  id: WorkbenchScenarioId;
-  label: string;
-  description: string;
-};
+import type { WorkbenchDataMode, WorkbenchUiState } from "../types";
 
 type TopBarProps = {
   title: string;
-  scenarios: ScenarioOption[];
-  activeScenarioId: WorkbenchScenarioId;
   dataMode: WorkbenchDataMode;
   apiStatus: WorkbenchUiState["apiStatus"];
   apiError: string | null;
-  onScenarioChange: (scenarioId: WorkbenchScenarioId) => void;
 };
 
 export function TopBar({
   title,
-  scenarios,
-  activeScenarioId,
   dataMode,
   apiStatus,
-  apiError,
-  onScenarioChange
+  apiError
 }: TopBarProps) {
   const statusCopy =
     dataMode === "api"
@@ -43,20 +31,6 @@ export function TopBar({
         <span className={["api-status", `api-status--${apiStatus}`].join(" ")} title={apiError ?? statusCopy}>
           {statusCopy}
         </span>
-        {scenarios.map((scenario) => (
-          <button
-            key={scenario.id}
-            type="button"
-            className={[
-              "scenario-chip",
-              scenario.id === activeScenarioId ? "is-active" : ""
-            ].join(" ")}
-            onClick={() => onScenarioChange(scenario.id)}
-            title={scenario.description}
-          >
-            {scenario.label}
-          </button>
-        ))}
       </div>
     </header>
   );

@@ -32,6 +32,15 @@ const conversationPanelSource = read(
   "components",
   "ConversationPanel.tsx"
 );
+const topBarSource = read(
+  "apps",
+  "web",
+  "src",
+  "features",
+  "workbench",
+  "components",
+  "TopBar.tsx"
+);
 const canvasWorkspaceSource = read(
   "apps",
   "web",
@@ -60,6 +69,7 @@ const intentStatusCardSource = read(
   "components",
   "IntentStatusCard.tsx"
 );
+const uiMetaSource = read("apps", "web", "src", "features", "workbench", "uiMeta.ts");
 
 test("gitignore excludes the frontend reference workspace", () => {
   assert.match(gitignore, /^frontend-refer\/$/m);
@@ -84,6 +94,17 @@ test("frontend workbench uses react flow and zustand", () => {
   assert.match(globalsSource, /\.flow-shell \.react-flow \{/);
   const viewportRule = globalsSource.match(/\.react-flow__viewport\s*\{[^}]*\}/)?.[0] ?? "";
   assert.doesNotMatch(viewportRule, /padding-left/);
+});
+
+test("canvas keeps generated nodes visible without obsolete toolbar entries", () => {
+  assert.match(canvasWorkspaceSource, /useReactFlow/);
+  assert.match(canvasWorkspaceSource, /flowNodeIds/);
+  assert.match(canvasWorkspaceSource, /fitView\(\{ padding: 0\.2, minZoom: 0\.48, maxZoom: 0\.88, duration: 420 \}\)/);
+  assert.doesNotMatch(canvasWorkspaceSource, /label: "面板"/);
+  assert.doesNotMatch(canvasWorkspaceSource, /label: "灵感"/);
+  assert.match(canvasWorkspaceSource, /selectionCursor/);
+  assert.match(uiMetaSource, /const nodeVerticalGap = 360/);
+  assert.match(uiMetaSource, /const nodeHorizontalGap = 360/);
 });
 
 test("frontend workbench defines server mirror and local ui state structures", () => {
@@ -133,6 +154,7 @@ test("workbench defines an api client for live session state", () => {
 test("workbench store loads live api state by default while retaining fixture fallback", () => {
   assert.match(typesSource, /type WorkbenchDataMode = "api" \| "fixture"/);
   assert.match(storeSource, /initializeApiSession/);
+  assert.match(storeSource, /const initialServerState/);
   assert.match(storeSource, /loadWorkbenchSessionState/);
   assert.match(storeSource, /submitVoiceTurn/);
   assert.match(storeSource, /confirmGenerationTask/);
@@ -140,12 +162,25 @@ test("workbench store loads live api state by default while retaining fixture fa
   assert.match(storeSource, /requestSessionUndo/);
   assert.match(storeSource, /dataMode: "api"/);
   assert.match(storeSource, /dataMode: "fixture"/);
+  assert.doesNotMatch(storeSource, /const initialState = \{\s*\.\.\.applyFixture/s);
 });
 
-test("page initializes the live api session and keeps demo scenarios available", () => {
+test("page initializes the live api session without exposing demo scenario controls", () => {
   assert.match(pageSource, /useEffect/);
   assert.match(pageSource, /initializeApiSession/);
-  assert.match(pageSource, /workbenchScenarioOptions/);
+  assert.doesNotMatch(pageSource, /workbenchScenarioOptions/);
+  assert.doesNotMatch(pageSource, /onScenarioChange/);
+  assert.doesNotMatch(topBarSource, /scenarios:/);
+  assert.doesNotMatch(topBarSource, /onScenarioChange/);
+  assert.doesNotMatch(topBarSource, /scenario-chip/);
+});
+
+test("live workbench components derive node metadata from api data instead of fixtures", () => {
+  assert.doesNotMatch(canvasWorkspaceSource, /fixture\.nodeUiMeta/);
+  assert.doesNotMatch(conversationPanelSource, /fixture\.nodeUiMeta/);
+  assert.doesNotMatch(conversationPanelSource, /messageDecorations/);
+  assert.match(conversationPanelSource, /selectedNode \? \(/);
+  assert.match(conversationPanelSource, /createNodeUiMeta\(selectedNode/);
 });
 
 test("todo reflects the first api integration slice", () => {

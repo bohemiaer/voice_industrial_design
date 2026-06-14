@@ -70,7 +70,6 @@ const getActiveTask = (tasks: GenerationTask[]) =>
   null;
 
 export function ConversationPanel() {
-  const fixture = useWorkbenchStore((state) => state.fixture);
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
   const toggleSystemMessage = useWorkbenchStore((state) => state.toggleSystemMessage);
@@ -88,10 +87,12 @@ export function ConversationPanel() {
   const currentTargetNode =
     serverState.nodes.find((node) => node.id === uiState.currentTargetNodeId) ?? null;
   const activeTask = getActiveTask(serverState.generationTasks);
-  const selectedNodeIndex = serverState.nodes.findIndex((node) => node.id === selectedNode.id);
-  const prompts =
-    fixture.nodeUiMeta[selectedNode.id]?.prompts ??
-    createNodeUiMeta(selectedNode, Math.max(selectedNodeIndex, 0)).prompts;
+  const selectedNodeIndex = selectedNode
+    ? serverState.nodes.findIndex((node) => node.id === selectedNode.id)
+    : -1;
+  const prompts = selectedNode
+    ? createNodeUiMeta(selectedNode, Math.max(selectedNodeIndex, 0)).prompts
+    : ["围绕桌面智能设备生成四个差异化工业设计方向"];
 
   const handlePromptClick = (prompt: string) => {
     if (uiState.dataMode === "api") {
@@ -140,18 +141,30 @@ export function ConversationPanel() {
       <header className="sidebar-header">
         <div className="sidebar-title">
           <h2>{serverState.session.title}</h2>
-          <p>
-            已选中 <strong>NODE {selectedNode.publicNodeNumber}</strong> · {selectedNode.displayName}
-          </p>
+          {selectedNode ? (
+            <p>
+              已选中 <strong>NODE {selectedNode.publicNodeNumber}</strong> · {selectedNode.displayName}
+            </p>
+          ) : (
+            <p>正在等待真实 API 返回第一批设计节点</p>
+          )}
         </div>
       </header>
 
       <div className="sidebar-scroll-region">
-        <CurrentTargetBanner
-          selectedNode={selectedNode}
-          currentTargetNode={currentTargetNode}
-          summary={uiState.lastActionSummary}
-        />
+        {selectedNode ? (
+          <CurrentTargetBanner
+            selectedNode={selectedNode}
+            currentTargetNode={currentTargetNode}
+            summary={uiState.lastActionSummary}
+          />
+        ) : (
+          <section className="sidebar-focus">
+            <span className="sidebar-focus__label">Live API</span>
+            <h3>连接真实数据中</h3>
+            <p>{uiState.lastActionSummary ?? "正在创建真实 API session。"}</p>
+          </section>
+        )}
 
         <IntentStatusCard task={activeTask} />
         <ConfirmationCard
@@ -160,18 +173,19 @@ export function ConversationPanel() {
           onCancel={cancelPendingAction}
         />
 
-        <section className="sidebar-focus">
-          <span className="sidebar-focus__label">Current focus</span>
-          <h3>{selectedNode.displayName}</h3>
-          <p>{selectedNode.intentSummary}</p>
-        </section>
+        {selectedNode ? (
+          <section className="sidebar-focus">
+            <span className="sidebar-focus__label">Current focus</span>
+            <h3>{selectedNode.displayName}</h3>
+            <p>{selectedNode.intentSummary}</p>
+          </section>
+        ) : null}
 
         <div className="sidebar-stream">
           {serverState.messages.map((message) => (
             <ChatMessage
               key={message.id}
               message={message}
-              decoration={fixture.messageDecorations[message.id]}
               isExpanded={uiState.expandedSystemMessageIds.includes(message.id)}
               onToggle={toggleSystemMessage}
             />
