@@ -2,10 +2,11 @@ import Fastify, { type FastifyInstance } from "fastify";
 import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 
-import { loadConfig, type PersistenceMode } from "./config.js";
+import { AgentGatewayError, type AgentGateway } from "./agents/types.js";
+import { loadConfig, type AgentProvider, type PersistenceMode } from "./config.js";
 import { createAgentGateway } from "./agents/index.js";
 import { createDatabase } from "./db/client.js";
-import { isApiError } from "./errors.js";
+import { ApiError, isApiError } from "./errors.js";
 import { createOrchestrator } from "./orchestrator/service.js";
 import { createDrizzleServices } from "./repositories/drizzle.js";
 import { createMemoryServices } from "./repositories/memory.js";
@@ -16,15 +17,44 @@ import { registerTaskRoutes } from "./routes/tasks.js";
 
 export interface BuildAppOptions {
   persistenceMode?: PersistenceMode;
+  agentProvider?: AgentProvider;
+  agentGateway?: AgentGateway;
 }
 
 export async function buildApp(
   options: BuildAppOptions = {}
 ): Promise<FastifyInstance> {
-  const config = loadConfig();
-  const persistenceMode = options.persistenceMode ?? config.persistenceMode;
+  const loadedConfig = loadConfig();
+  const config = {
+    ...loadedConfig,
+    persistenceMode: options.persistenceMode ?? loadedConfig.persistenceMode,
+    agentProvider: options.agentProvider ?? loadedConfig.agentProvider
+  };
+  const persistenceMode = config.persistenceMode;
   const app = Fastify({
     logger: true
+  });
+
+  app.addHook("onRequest", async (request, reply) => {
+    const origin = request.headers.origin;
+
+    if (origin) {
+      reply.header("Access-Control-Allow-Origin", origin);
+      reply.header("Vary", "Origin");
+    }
+
+    reply.header(
+      "Access-Control-Allow-Methods",
+      "GET,POST,OPTIONS"
+    );
+    reply.header(
+      "Access-Control-Allow-Headers",
+      "Content-Type,Authorization"
+    );
+
+    if (request.method === "OPTIONS") {
+      return reply.status(204).send();
+    }
   });
 
   await app.register(multipart, {
@@ -47,7 +77,7 @@ export async function buildApp(
     services = createMemoryServices();
   }
 
-  const agentGateway = createAgentGateway(config);
+  const agentGateway = options.agentGateway ?? createAgentGateway(config);
   const orchestrator = createOrchestrator(services, config, agentGateway);
 
   app.setErrorHandler((error, request, reply) => {
@@ -67,6 +97,17 @@ export async function buildApp(
           code: "INVALID_REQUEST",
           message: "Request validation failed",
           issues: error.issues
+        }
+      });
+      return;
+    }
+
+    if (error instanceof AgentGatewayError) {
+      const apiError = mapAgentGatewayError(error);
+      reply.status(apiError.statusCode).send({
+        error: {
+          code: apiError.code,
+          message: apiError.message
         }
       });
       return;
@@ -92,4 +133,18 @@ export async function buildApp(
   });
 
   return app;
+}
+
+function mapAgentGatewayError(error: AgentGatewayError): ApiError {
+  switch (error.code) {
+    case "ASR_AUDIO_REQUIRED":
+      return new ApiError(400, error.code, error.message);
+    case "SILICONFLOW_CONFIG_MISSING":
+      return new ApiError(500, error.code, error.message);
+    case "SILICONFLOW_REQUEST_FAILED":
+    case "SILICONFLOW_RESPONSE_INVALID":
+      return new ApiError(502, error.code, error.message);
+    default:
+      return new ApiError(500, error.code, error.message);
+  }
 }

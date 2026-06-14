@@ -1,58 +1,50 @@
-import type { GenerationTask, TreeOperation } from "@voice-industrial-design/shared";
+import type {
+  GenerationTask,
+  Message,
+  Session,
+  TreeOperation
+} from "@voice-industrial-design/shared";
 import { create } from "zustand";
 
 import {
   cancelGenerationTask,
   confirmGenerationTask,
   createWorkbenchSession,
+  isApiConnectionInterruptedError,
+  isSessionNotFoundError,
+  loadWorkbenchMessages,
   loadWorkbenchSessionState,
+  loadWorkbenchTree,
   requestSessionUndo,
   submitVoiceRecording,
-  submitVoiceTurn as submitVoiceTurnToApi
+  submitVoiceTurn as submitVoiceTurnToApi,
+  transcribeVoiceRecording
 } from "./api";
-import { workbenchFixtureMap, workbenchFixtures } from "./fixtures";
 import type {
   PendingAction,
   RecordingState,
-  WorkbenchFixture,
-  WorkbenchScenarioId,
   WorkbenchServerState,
   WorkbenchUiState
 } from "./types";
 
 type WorkbenchStore = {
-  fixture: WorkbenchFixture;
   serverState: WorkbenchServerState;
   uiState: WorkbenchUiState;
   initializeApiSession: () => Promise<void>;
-  setScenario: (scenarioId: WorkbenchScenarioId) => void;
+  startNewApiSession: () => Promise<void>;
   selectNode: (nodeId: string) => void;
   toggleSystemMessage: (messageId: string) => void;
   setRecordingState: (recordingState: RecordingState) => void;
   cycleRecordingState: () => void;
-  submitVoiceTurn: (transcriptText: string) => Promise<void>;
-  submitAudioTurn: (audio: Blob) => Promise<void>;
-  confirmPendingAction: () => Promise<void>;
+  transcribeAudioTurn: (audio: Blob) => Promise<{ transcriptText: string } | null>;
+  submitVoiceTurn: (transcriptText: string, recovered?: boolean) => Promise<void>;
+  submitAudioTurn: (audio: Blob, recovered?: boolean) => Promise<void>;
+  confirmPendingAction: (confirmationText?: string) => Promise<void>;
   cancelPendingAction: () => Promise<void>;
   requestUndo: () => Promise<void>;
 };
 
-const initialFixture = workbenchFixtureMap["branch-review"];
 const initialTimestamp = "2026-06-14T00:00:00.000+08:00";
-
-const applyFixture = (fixture: WorkbenchFixture) => ({
-  fixture,
-  serverState: fixture.serverState,
-  uiState: {
-    activeScenarioId: fixture.id,
-    dataMode: "fixture" as const,
-    apiSessionId: null,
-    apiStatus: "fallback" as const,
-    apiError: null,
-    ...fixture.uiDefaults
-  }
-});
-
 const initialServerState: WorkbenchServerState = {
   session: {
     id: "pending-api-session",
@@ -73,20 +65,19 @@ const initialServerState: WorkbenchServerState = {
 };
 
 const initialState = {
-  fixture: initialFixture,
   serverState: initialServerState,
   uiState: {
     selectedNodeId: "",
-    activeScenarioId: "first-layer" as const,
-    dataMode: "api" as const,
     apiSessionId: null,
     apiStatus: "idle" as const,
     apiError: null,
     expandedSystemMessageIds: [],
     recordingState: "idle" as const,
+    liveTranscriptText: null,
     currentTargetNodeId: null,
     pendingAction: null,
-    lastActionSummary: "正在连接真实 API。"
+    lastActionSummary: "正在连接真实 API。",
+    isThinking: false
   }
 };
 
@@ -126,10 +117,45 @@ function mergeTask(
   return tasks.map((candidate) => (candidate.id === task.id ? task : candidate));
 }
 
+function createOptimisticUserMessage(
+  sessionId: string,
+  transcriptText: string
+): Message {
+  return {
+    id: `optimistic-user-${Date.now()}`,
+    sessionId,
+    taskId: null,
+    role: "user",
+    kind: "transcript",
+    content: transcriptText,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function createThinkingMessage(sessionId: string): Message {
+  return {
+    id: `optimistic-thinking-${Date.now()}`,
+    sessionId,
+    taskId: null,
+    role: "assistant",
+    kind: "status",
+    content: "思考中...",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function isConfirmationText(transcriptText: string): boolean {
+  return transcriptText.replace(/[。！!？?,，、\s"'“”‘’]+/g, "") === "确认";
+}
+
 function resolveSelectedNodeId(
   serverState: WorkbenchServerState,
   previousSelectedNodeId: string | null
 ): string {
+  if (previousSelectedNodeId === serverState.session.id) {
+    return serverState.session.id;
+  }
+
   if (
     previousSelectedNodeId &&
     serverState.nodes.some((node) => node.id === previousSelectedNodeId)
@@ -139,7 +165,6 @@ function resolveSelectedNodeId(
 
   return (
     serverState.session.activeNodeId ??
-    serverState.session.lastMentionedNodeId ??
     serverState.nodes[0]?.id ??
     serverState.session.id
   );
@@ -157,25 +182,56 @@ function resolveApiUiState(input: {
     input.serverState,
     input.previous.selectedNodeId
   );
+  const resolvedTargetNodeId = input.task?.targetNodeId ?? selectedNodeId;
 
   return {
     ...input.previous,
-    activeScenarioId: "first-layer",
-    dataMode: "api",
     apiSessionId: input.apiSessionId,
     apiStatus: input.apiStatus ?? "ready",
     apiError: input.apiError ?? null,
-    selectedNodeId,
-    currentTargetNodeId:
-      input.task?.targetNodeId ??
-      input.serverState.session.lastMentionedNodeId ??
-      selectedNodeId,
+    selectedNodeId: resolvedTargetNodeId,
+    currentTargetNodeId: input.task?.targetNodeId ?? selectedNodeId,
     pendingAction: derivePendingAction(input.task),
     recordingState: "idle",
+    isThinking: false,
     lastActionSummary:
       input.task?.status === "completed"
-        ? "真实 API 已写入本轮语音脑暴结果。"
+        ? "已确认并完成本轮设计扩展。"
+        : input.task?.status === "awaiting_confirmation"
+          ? "已整理需求，等待你确认后再更新画布。"
         : input.previous.lastActionSummary
+  };
+}
+
+function createFreshApiSessionState(
+  previous: WorkbenchUiState,
+  session: Session
+): {
+  serverState: WorkbenchServerState;
+  uiState: WorkbenchUiState;
+} {
+  return {
+    serverState: {
+      session,
+      nodes: [],
+      messages: [],
+      generationTasks: [],
+      treeOperations: []
+    },
+    uiState: {
+      ...previous,
+      apiSessionId: session.id,
+      apiStatus: "ready",
+      apiError: null,
+      selectedNodeId: session.id,
+      currentTargetNodeId: session.id,
+      pendingAction: null,
+      expandedSystemMessageIds: [],
+      recordingState: "idle",
+      liveTranscriptText: null,
+      lastActionSummary: "请用语音描述产品、功能、人群、关键需求和风格。",
+      isThinking: false
+    }
   };
 }
 
@@ -191,6 +247,54 @@ async function refreshApiState(input: {
   );
 }
 
+async function refreshMessagesOnly(input: {
+  current: WorkbenchServerState;
+  sessionId: string;
+}): Promise<WorkbenchServerState> {
+  const messages = await loadWorkbenchMessages(input.sessionId);
+
+  return {
+    session: input.current.session,
+    nodes: input.current.nodes,
+    messages: messages.messages,
+    generationTasks: input.current.generationTasks,
+    treeOperations: input.current.treeOperations
+  };
+}
+
+async function refreshTreeOnly(input: {
+  current: WorkbenchServerState;
+  sessionId: string;
+}): Promise<WorkbenchServerState> {
+  const tree = await loadWorkbenchTree(input.sessionId);
+
+  return {
+    session: tree.session,
+    nodes: tree.nodes,
+    messages: input.current.messages,
+    generationTasks: input.current.generationTasks,
+    treeOperations: input.current.treeOperations
+  };
+}
+
+async function recoverStaleApiSession(
+  previous: WorkbenchUiState
+): Promise<{
+  serverState: WorkbenchServerState;
+  uiState: WorkbenchUiState;
+}> {
+  const session = await createWorkbenchSession();
+  const recovered = createFreshApiSessionState(previous, session);
+
+  return {
+    ...recovered,
+    uiState: {
+      ...recovered.uiState,
+      lastActionSummary: "后端会话已重置，正在重新提交真实请求。"
+    }
+  };
+}
+
 export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   ...initialState,
   initializeApiSession: async () => {
@@ -203,52 +307,65 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set((state) => ({
       uiState: {
         ...state.uiState,
-        dataMode: "api",
         apiStatus: "loading",
         apiError: null,
-        recordingState: "processing"
+        recordingState: "processing",
+        isThinking: false
       }
     }));
 
     try {
       const session = await createWorkbenchSession();
-      const task = await submitVoiceTurnToApi({
-        sessionId: session.id,
-        transcriptText: "围绕桌面智能设备生成四个差异化工业设计方向",
-        targetNodeId: null
-      });
-      const generationTasks = [task];
-      const serverState = await refreshApiState({
-        sessionId: session.id,
-        generationTasks,
-        treeOperations: []
-      });
 
-      set((state) => ({
-        serverState,
-        uiState: resolveApiUiState({
-          previous: state.uiState,
-          serverState,
-          task,
-          apiSessionId: session.id
-        })
-      }));
+      set((state) => createFreshApiSessionState(state.uiState, session));
     } catch (error) {
       set((state) => ({
-        ...applyFixture(initialFixture),
         uiState: {
-          ...applyFixture(initialFixture).uiState,
-          apiStatus: "fallback",
+          ...state.uiState,
+          apiStatus: "error",
           apiError:
             error instanceof Error
               ? error.message
-              : "真实 API 暂不可用，已切回 demo fixture。"
+              : "真实 API 暂不可用，请检查后端和硅基配置。",
+          recordingState: "idle",
+          lastActionSummary: "真实 API 初始化失败。",
+          isThinking: false
         }
       }));
     }
   },
-  setScenario: (scenarioId) => {
-    set(applyFixture(workbenchFixtureMap[scenarioId]));
+  startNewApiSession: async () => {
+    set((state) => ({
+      uiState: {
+        ...state.uiState,
+        apiStatus: "loading",
+        apiError: null,
+        recordingState: "processing",
+        pendingAction: null,
+        lastActionSummary: "正在创建新的真实 API 测试会话。",
+        isThinking: false
+      }
+    }));
+
+    try {
+      const session = await createWorkbenchSession();
+
+      set((state) => createFreshApiSessionState(state.uiState, session));
+    } catch (error) {
+      set((state) => ({
+        uiState: {
+          ...state.uiState,
+          apiStatus: "error",
+          apiError:
+            error instanceof Error
+              ? error.message
+              : "真实 API 暂不可用，请检查后端和硅基配置。",
+          recordingState: "idle",
+          lastActionSummary: "新的真实 API 测试会话创建失败。",
+          isThinking: false
+        }
+      }));
+    }
   },
   selectNode: (nodeId) => {
     set((state) => ({
@@ -301,38 +418,120 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       };
     });
   },
-  submitVoiceTurn: async (transcriptText) => {
-    const state = get();
-
-    if (state.uiState.dataMode !== "api" || !state.uiState.apiSessionId) {
-      state.setRecordingState("listening");
-      return;
-    }
-
+  transcribeAudioTurn: async (audio) => {
     set((current) => ({
       uiState: {
         ...current.uiState,
         recordingState: "processing",
         apiError: null,
-        lastActionSummary: "正在通过真实 API 处理语音意图。"
+        liveTranscriptText: null,
+        lastActionSummary: "正在转文字。",
+        isThinking: false
+      }
+    }));
+
+    try {
+      const transcript = await transcribeVoiceRecording(audio);
+
+      if (transcript.transcriptText.trim().length === 0) {
+        set((current) => ({
+          uiState: {
+            ...current.uiState,
+            recordingState: "idle",
+            apiError: "未识别到语音，请再试一次。",
+            lastActionSummary: "这次没有识别到有效语音内容。",
+            isThinking: false
+          }
+        }));
+        return null;
+      }
+
+      set((current) => ({
+        uiState: {
+          ...current.uiState,
+          liveTranscriptText: transcript.transcriptText,
+          lastActionSummary: `已识别语音：${transcript.transcriptText}`,
+          isThinking: false
+        }
+      }));
+
+      return transcript;
+    } catch (error) {
+      set((current) => ({
+        uiState: {
+          ...current.uiState,
+          apiStatus: "error",
+          apiError:
+            error instanceof Error ? error.message : "真实录音转文字失败。",
+          recordingState: "idle",
+          isThinking: false
+        }
+      }));
+      return null;
+    }
+  },
+  submitVoiceTurn: async (transcriptText, recovered = false) => {
+    const state = get();
+    const trimmed = transcriptText.trim();
+
+    if (
+      isConfirmationText(trimmed) &&
+      state.uiState.pendingAction?.kind === "task_confirmation"
+    ) {
+      await state.confirmPendingAction(trimmed);
+      return;
+    }
+
+    if (!state.uiState.apiSessionId) {
+      state.setRecordingState("listening");
+      return;
+    }
+
+    const previousMessages = state.serverState.messages;
+    const optimisticUserMessage = createOptimisticUserMessage(
+      state.uiState.apiSessionId,
+      trimmed
+    );
+
+    set((current) => ({
+      serverState: {
+        ...current.serverState,
+        messages: [...current.serverState.messages, optimisticUserMessage]
+      },
+      uiState: {
+        ...current.uiState,
+        recordingState: "processing",
+        apiError: null,
+        liveTranscriptText: trimmed,
+        lastActionSummary: "正在通过真实 API 处理语音意图。",
+        isThinking: true
       }
     }));
 
     try {
       const task = await submitVoiceTurnToApi({
         sessionId: state.uiState.apiSessionId,
-        transcriptText,
+        transcriptText: trimmed,
         targetNodeId:
           state.uiState.currentTargetNodeId === state.serverState.session.id
             ? null
             : state.uiState.currentTargetNodeId
       });
       const generationTasks = mergeTask(state.serverState.generationTasks, task);
-      const serverState = await refreshApiState({
-        sessionId: state.uiState.apiSessionId,
-        generationTasks,
-        treeOperations: state.serverState.treeOperations
-      });
+      const serverState =
+        task.status === "awaiting_confirmation"
+          ? await refreshMessagesOnly({
+              current: {
+                ...state.serverState,
+                generationTasks
+              },
+              sessionId: state.uiState.apiSessionId
+            })
+          : await refreshApiState({
+              sessionId: state.uiState.apiSessionId,
+              generationTasks,
+              treeOperations: state.serverState.treeOperations
+            });
 
       set((current) => ({
         serverState,
@@ -344,72 +543,106 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         })
       }));
     } catch (error) {
+      if (
+        !recovered &&
+        (isSessionNotFoundError(error) || isApiConnectionInterruptedError(error))
+      ) {
+        set((current) => ({
+          serverState: {
+            ...current.serverState,
+            messages: previousMessages
+          },
+          uiState: {
+            ...current.uiState,
+            apiStatus: "loading",
+            apiError: null,
+            recordingState: "processing",
+            lastActionSummary: "后端会话已重置，正在重新提交真实请求。",
+            isThinking: true
+          }
+        }));
+
+        try {
+          const recoveredState = await recoverStaleApiSession(get().uiState);
+          set(recoveredState);
+          await get().submitVoiceTurn(transcriptText, true);
+          return;
+        } catch (recoveryError) {
+          error = recoveryError;
+        }
+      }
+
       set((current) => ({
+        serverState: {
+          ...current.serverState,
+          messages: previousMessages
+        },
         uiState: {
           ...current.uiState,
           apiStatus: "error",
           apiError:
             error instanceof Error ? error.message : "语音意图提交失败。",
-          recordingState: "idle"
+          recordingState: "idle",
+          isThinking: false
         }
       }));
     }
   },
-  submitAudioTurn: async (audio) => {
+  submitAudioTurn: async (audio, recovered = false) => {
     const state = get();
 
-    if (state.uiState.dataMode !== "api" || !state.uiState.apiSessionId) {
+    if (!state.uiState.apiSessionId) {
       state.setRecordingState("idle");
       return;
     }
 
-    set((current) => ({
-      uiState: {
-        ...current.uiState,
-        recordingState: "processing",
-        apiError: null,
-        lastActionSummary: "正在上传真实录音并等待 ASR。"
-      }
-    }));
-
     try {
-      const task = await submitVoiceRecording({
-        sessionId: state.uiState.apiSessionId,
-        audio,
-        targetNodeId:
-          state.uiState.currentTargetNodeId === state.serverState.session.id
-            ? null
-            : state.uiState.currentTargetNodeId
-      });
-      const generationTasks = mergeTask(state.serverState.generationTasks, task);
-      const serverState = await refreshApiState({
-        sessionId: state.uiState.apiSessionId,
-        generationTasks,
-        treeOperations: state.serverState.treeOperations
-      });
+      const transcript = await get().transcribeAudioTurn(audio);
 
-      set((current) => ({
-        serverState,
-        uiState: resolveApiUiState({
-          previous: current.uiState,
-          serverState,
-          task,
-          apiSessionId: state.uiState.apiSessionId as string
-        })
-      }));
+      if (!transcript) {
+        return;
+      }
+
+      await get().submitVoiceTurn(transcript.transcriptText);
     } catch (error) {
+      if (
+        !recovered &&
+        (isSessionNotFoundError(error) || isApiConnectionInterruptedError(error))
+      ) {
+        set((current) => ({
+          uiState: {
+            ...current.uiState,
+            apiStatus: "loading",
+            apiError: null,
+            recordingState: "processing",
+            lastActionSummary: "后端会话已重置，正在重新上传真实录音。",
+            isThinking: false
+          }
+        }));
+
+        try {
+          const recoveredState = await recoverStaleApiSession(get().uiState);
+          set(recoveredState);
+          await get().submitAudioTurn(audio, true);
+          return;
+        } catch (recoveryError) {
+          error = recoveryError;
+        }
+      }
+
       set((current) => ({
         uiState: {
           ...current.uiState,
           apiStatus: "error",
           apiError:
             error instanceof Error ? error.message : "真实录音上传失败。",
-          recordingState: "idle"
+          recordingState: "idle",
+          isThinking: false
         }
       }));
     }
   },
-  confirmPendingAction: async () => {
+  confirmPendingAction: async (confirmationText = "确认") => {
     const state = get();
     const pending = state.uiState.pendingAction;
 
@@ -417,22 +650,57 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return;
     }
 
-    if (state.uiState.dataMode === "api" && pending.kind === "task_confirmation") {
+    if (pending.kind === "task_confirmation") {
+      const pendingTask = state.serverState.generationTasks.find(
+        (task) => task.id === pending.taskId
+      );
+      const previousGoal = state.serverState.session.goal;
+      const optimisticUserMessage =
+        state.uiState.apiSessionId
+          ? createOptimisticUserMessage(state.uiState.apiSessionId, confirmationText)
+          : null;
+
       set((current) => ({
+        serverState: {
+          ...(pendingTask
+            ? {
+                ...current.serverState,
+                session: {
+                  ...current.serverState.session,
+                  goal: pendingTask.designIntentSummary
+                }
+              }
+            : current.serverState),
+          messages: optimisticUserMessage
+            ? [...current.serverState.messages, optimisticUserMessage]
+            : current.serverState.messages
+        },
         uiState: {
           ...current.uiState,
           recordingState: "processing",
-          apiError: null
+          apiError: null,
+          isThinking: false
         }
       }));
 
       try {
         const task = await confirmGenerationTask(pending.taskId);
         const generationTasks = mergeTask(state.serverState.generationTasks, task);
-        const serverState = await refreshApiState({
-          sessionId: state.uiState.apiSessionId as string,
-          generationTasks,
-          treeOperations: state.serverState.treeOperations
+        const serverState = await refreshTreeOnly({
+          current: {
+            ...state.serverState,
+            session: pendingTask
+              ? {
+                  ...state.serverState.session,
+                  goal: pendingTask.designIntentSummary
+                }
+              : state.serverState.session,
+            messages: optimisticUserMessage
+              ? [...state.serverState.messages, optimisticUserMessage]
+              : state.serverState.messages,
+            generationTasks
+          },
+          sessionId: state.uiState.apiSessionId as string
         });
 
         set((current) => ({
@@ -445,43 +713,33 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
               apiSessionId: state.uiState.apiSessionId as string
             }),
             pendingAction: null,
-            lastActionSummary: "已通过真实 API 确认本轮高风险操作。"
+            lastActionSummary: "已确认需求，画布已按新意图更新。",
+            isThinking: false
           }
         }));
       } catch (error) {
         set((current) => ({
+          serverState: pendingTask
+            ? {
+                ...current.serverState,
+                session: {
+                  ...current.serverState.session,
+                  goal: previousGoal
+                }
+              }
+            : current.serverState,
           uiState: {
             ...current.uiState,
             apiStatus: "error",
             apiError:
               error instanceof Error ? error.message : "确认任务失败。",
-            recordingState: "idle"
+            recordingState: "idle",
+            isThinking: false
           }
         }));
       }
       return;
     }
-
-    if (pending.kind === "task_confirmation") {
-      const nextFixture = workbenchFixtureMap["deeper-layer"];
-      set({
-        ...applyFixture(nextFixture),
-        uiState: {
-          ...applyFixture(nextFixture).uiState,
-          lastActionSummary: "已确认下钻请求，正在生成 3 个子方向。"
-        }
-      });
-      return;
-    }
-
-    const revertedFixture = workbenchFixtureMap["first-layer"];
-    set({
-      ...applyFixture(revertedFixture),
-      uiState: {
-        ...applyFixture(revertedFixture).uiState,
-        lastActionSummary: "已撤销最近一次分支下钻，树已恢复到第一层 4 个方向。"
-      }
-    });
   },
   cancelPendingAction: async () => {
     const state = get();
@@ -491,7 +749,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return;
     }
 
-    if (state.uiState.dataMode === "api" && pending.kind === "task_confirmation") {
+    if (pending.kind === "task_confirmation") {
       try {
         const task = await cancelGenerationTask(pending.taskId);
         const generationTasks = mergeTask(state.serverState.generationTasks, task);
@@ -511,7 +769,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
               apiSessionId: state.uiState.apiSessionId as string
             }),
             pendingAction: null,
-            lastActionSummary: "已通过真实 API 取消本轮高风险操作。"
+            lastActionSummary: "已通过真实 API 取消本轮高风险操作。",
+            isThinking: false
           }
         }));
       } catch (error) {
@@ -534,15 +793,15 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         lastActionSummary:
           pending.kind === "undo"
             ? "已保留当前树状态，未执行撤销。"
-            : "已取消本轮高风险操作确认。"
+            : "已取消本轮高风险操作确认。",
+        isThinking: false
       }
     }));
   },
   requestUndo: async () => {
     const state = get();
 
-    if (state.uiState.dataMode !== "api" || !state.uiState.apiSessionId) {
-      state.setScenario("undo-review");
+    if (!state.uiState.apiSessionId) {
       return;
     }
 
@@ -560,7 +819,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         uiState: {
           ...current.uiState,
           pendingAction: null,
-          lastActionSummary: "真实 API 已记录撤销操作，树恢复逻辑仍在后端待补齐。"
+          lastActionSummary: "真实 API 已记录撤销操作，树恢复逻辑仍在后端待补齐。",
+          isThinking: false
         }
       }));
     } catch (error) {
@@ -574,10 +834,4 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }));
     }
   }
-}));
-
-export const workbenchScenarioOptions = workbenchFixtures.map((fixture) => ({
-  id: fixture.id,
-  label: fixture.label,
-  description: fixture.description
 }));

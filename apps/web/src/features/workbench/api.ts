@@ -8,8 +8,11 @@ import type {
 
 import type { WorkbenchServerState } from "./types";
 
+const DEFAULT_DEV_API_BASE_URL = "http://localhost:8787";
+
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
+  (process.env.NODE_ENV === "development" ? DEFAULT_DEV_API_BASE_URL : "");
 
 type CreateSessionResponse = {
   session: Session;
@@ -32,6 +35,51 @@ type UndoResponse = {
   operation: TreeOperation;
 };
 
+type TranscriptionResponse = {
+  transcriptText: string;
+};
+
+class ApiClientError extends Error {
+  status: number;
+  code: string | null;
+
+  constructor(input: { message: string; status: number; code: string | null }) {
+    super(input.message);
+    this.name = "ApiClientError";
+    this.status = input.status;
+    this.code = input.code;
+  }
+}
+
+function createApiError(response: Response, body: unknown): ApiClientError {
+  const errorBody =
+    body && typeof body === "object" && "error" in body
+      ? (body as { error?: { code?: string; message?: string } }).error
+      : null;
+
+  return new ApiClientError({
+    status: response.status,
+    code: errorBody?.code ?? null,
+    message: errorBody?.message ?? `API request failed with ${response.status}`
+  });
+}
+
+export function isSessionNotFoundError(error: unknown): boolean {
+  return (
+    error instanceof ApiClientError &&
+    error.status === 404 &&
+    error.code === "SESSION_NOT_FOUND"
+  );
+}
+
+export function isApiConnectionInterruptedError(error: unknown): boolean {
+  return (
+    error instanceof ApiClientError &&
+    error.status >= 500 &&
+    error.code === null
+  );
+}
+
 async function requestJson<T>(
   path: string,
   init?: RequestInit
@@ -46,9 +94,7 @@ async function requestJson<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const message =
-      body?.error?.message ?? `API request failed with ${response.status}`;
-    throw new Error(message);
+    throw createApiError(response, body);
   }
 
   return (await response.json()) as T;
@@ -62,9 +108,7 @@ async function requestForm<T>(path: string, formData: FormData): Promise<T> {
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const message =
-      body?.error?.message ?? `API request failed with ${response.status}`;
-    throw new Error(message);
+    throw createApiError(response, body);
   }
 
   return (await response.json()) as T;
@@ -82,14 +126,26 @@ export async function createWorkbenchSession(): Promise<Session> {
   return response.session;
 }
 
+export async function loadWorkbenchTree(
+  sessionId: string
+): Promise<TreeResponse> {
+  return requestJson<TreeResponse>(`/api/sessions/${sessionId}/tree`);
+}
+
+export async function loadWorkbenchMessages(
+  sessionId: string
+): Promise<MessagesResponse> {
+  return requestJson<MessagesResponse>(`/api/sessions/${sessionId}/messages`);
+}
+
 export async function loadWorkbenchSessionState(
   sessionId: string,
   generationTasks: GenerationTask[] = [],
   treeOperations: TreeOperation[] = []
 ): Promise<WorkbenchServerState> {
   const [tree, messages] = await Promise.all([
-    requestJson<TreeResponse>(`/api/sessions/${sessionId}/tree`),
-    requestJson<MessagesResponse>(`/api/sessions/${sessionId}/messages`)
+    loadWorkbenchTree(sessionId),
+    loadWorkbenchMessages(sessionId)
   ]);
 
   return {
@@ -126,7 +182,7 @@ export async function submitVoiceRecording(input: {
   targetNodeId: string | null;
 }): Promise<GenerationTask> {
   const formData = new FormData();
-  formData.append("audio", input.audio, "recording.webm");
+  formData.append("audio", input.audio, "recording.wav");
 
   if (input.targetNodeId) {
     formData.append("targetNodeId", input.targetNodeId);
@@ -138,6 +194,15 @@ export async function submitVoiceRecording(input: {
   );
 
   return response.task;
+}
+
+export async function transcribeVoiceRecording(
+  audio: Blob
+): Promise<TranscriptionResponse> {
+  const formData = new FormData();
+  formData.append("audio", audio, "recording.wav");
+
+  return requestForm<TranscriptionResponse>("/api/transcriptions", formData);
 }
 
 export async function getGenerationTask(

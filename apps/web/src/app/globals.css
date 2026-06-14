@@ -97,30 +97,34 @@ button {
   white-space: nowrap;
 }
 
+.topbar-reset {
+  display: inline-flex;
+  align-items: center;
+  min-height: 33px;
+  border: 1px solid rgba(99, 109, 122, 0.16);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #4f5b6b;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.topbar-reset:hover {
+  border-color: rgba(49, 86, 77, 0.28);
+  background: rgba(238, 246, 243, 0.96);
+  color: #31564d;
+}
+
 .api-status--loading {
   background: rgba(245, 241, 229, 0.94);
   color: #7a6331;
 }
 
-.api-status--fallback,
 .api-status--error {
   background: rgba(248, 237, 235, 0.94);
   color: #8c463c;
-}
-
-.scenario-chip {
-  border: 1px solid rgba(219, 224, 230, 0.96);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #69717d;
-  padding: 8px 12px;
-  font-size: 12px;
-}
-
-.scenario-chip.is-active {
-  border-color: rgba(78, 89, 104, 0.18);
-  background: rgba(22, 26, 31, 0.92);
-  color: #fff;
 }
 
 .workbench-body {
@@ -317,6 +321,10 @@ button {
   background: rgba(252, 252, 251, 0.88);
 }
 
+.node-card.is-root {
+  background: rgba(255, 255, 255, 0.96);
+}
+
 .node-card__header {
   display: flex;
   align-items: center;
@@ -367,6 +375,56 @@ button {
   line-height: 1.68;
 }
 
+.node-card.is-root .node-card__copy p {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.node-card__requirement {
+  border: 1px solid rgba(207, 214, 224, 0.8);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(247, 249, 251, 0.92);
+}
+
+.node-card__requirement span {
+  display: block;
+  margin-bottom: 8px;
+  color: #717b88;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.node-card__requirement p {
+  margin: 0;
+  color: #2e3640;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.node-card__requirement-text {
+  margin-bottom: 12px;
+}
+
+.node-card__empty-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.node-card__empty-prompts em {
+  border: 1px solid rgba(184, 193, 205, 0.8);
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #4b5563;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 650;
+}
+
 .node-card__visual {
   position: relative;
   height: 174px;
@@ -374,6 +432,14 @@ button {
   border: 1px solid rgba(207, 214, 224, 0.8);
   border-radius: 14px;
   background: #eff2f6;
+}
+
+.node-card__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .visual-core,
@@ -476,7 +542,6 @@ button {
 
 .port {
   position: absolute;
-  top: 50%;
   z-index: 3;
   display: inline-flex;
   align-items: center;
@@ -486,16 +551,19 @@ button {
   border: 2px solid rgba(201, 207, 216, 0.94);
   border-radius: 999px;
   background: #fff;
-  transform: translateY(-50%);
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9);
 }
 
-.port-left {
-  left: -6px;
+.port-top {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-.port-right {
-  right: -6px;
+.port-bottom {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .port-core {
@@ -530,12 +598,16 @@ button {
   box-shadow: none;
 }
 
-.flow-handle-left.react-flow__handle {
-  left: -6px;
+.flow-handle-top.react-flow__handle {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-.flow-handle-right.react-flow__handle {
-  right: -6px;
+.flow-handle-bottom.react-flow__handle {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .react-flow__edge-path {
@@ -929,15 +1001,28 @@ button {
 }
 
 .input-panel__field p,
-.input-panel__field span {
+.input-panel__text-input {
   margin: 0;
   font-size: 13px;
   line-height: 1.75;
 }
 
-.input-panel__field span {
+.input-panel__text-input {
   display: block;
+  width: 100%;
   margin-top: 8px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #c2c8d1;
+  padding: 0;
+  resize: none;
+  overflow-y: hidden;
+  field-sizing: content;
+  white-space: pre-wrap;
+}
+
+.input-panel__text-input::placeholder {
   color: #c2c8d1;
 }
 

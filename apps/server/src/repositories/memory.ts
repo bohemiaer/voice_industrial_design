@@ -91,6 +91,7 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
 
         const updated: Session = {
           ...current,
+          goal: input.goal ?? current.goal,
           nextPublicNodeNumber: input.nextPublicNodeNumber,
           activeNodeId: input.activeNodeId ?? current.activeNodeId,
           lastMentionedNodeId:

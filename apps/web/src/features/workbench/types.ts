@@ -1,5 +1,4 @@
 import type {
-  BrainstormActionType,
   GenerationTask,
   Message,
   Session,
@@ -11,19 +10,10 @@ export type NodePalette = "teal" | "amber" | "blue" | "sand" | "mist" | "ghost";
 
 export type RecordingState = "idle" | "listening" | "processing";
 
-export type WorkbenchDataMode = "api" | "fixture";
-
-export type WorkbenchScenarioId =
-  | "first-layer"
-  | "branch-review"
-  | "deeper-layer"
-  | "refresh-layer"
-  | "undo-review";
-
 export type MessageDecoration = {
   summary?: string;
   details?: string;
-  actionType?: BrainstormActionType;
+  actionType?: GenerationTask["actionType"];
   defaultOpen?: boolean;
 };
 
@@ -64,27 +54,14 @@ export type WorkbenchServerState = {
 
 export type WorkbenchUiState = {
   selectedNodeId: string;
-  activeScenarioId: WorkbenchScenarioId;
-  dataMode: WorkbenchDataMode;
   apiSessionId: string | null;
-  apiStatus: "idle" | "loading" | "ready" | "fallback" | "error";
+  apiStatus: "idle" | "loading" | "ready" | "error";
   apiError: string | null;
   expandedSystemMessageIds: string[];
   recordingState: RecordingState;
+  liveTranscriptText: string | null;
   currentTargetNodeId: string | null;
   pendingAction: PendingAction | null;
   lastActionSummary: string | null;
-};
-
-export type WorkbenchFixture = {
-  id: WorkbenchScenarioId;
-  label: string;
-  description: string;
-  serverState: WorkbenchServerState;
-  nodeUiMeta: Record<string, NodeUiMeta>;
-  messageDecorations: Record<string, MessageDecoration>;
-  uiDefaults: Omit<
-    WorkbenchUiState,
-    "activeScenarioId" | "dataMode" | "apiSessionId" | "apiStatus" | "apiError"
-  >;
+  isThinking: boolean;
 };

@@ -102,6 +102,7 @@ export interface UpdateGenerationTaskStatusInput {
 export interface UpdateSessionAfterNodesInput {
   sessionId: string;
   nextPublicNodeNumber: number;
+  goal?: string;
   activeNodeId?: string | null;
   lastMentionedNodeId?: string | null;
 }

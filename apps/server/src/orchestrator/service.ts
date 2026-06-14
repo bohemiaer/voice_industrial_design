@@ -11,6 +11,7 @@ import {
 } from "@voice-industrial-design/shared";
 
 import type { AgentGateway } from "../agents/types.js";
+import type { TranscribeAudioInput, TranscribeAudioOutput } from "../agents/types.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 import type { AppServices } from "../repositories/types.js";
@@ -28,6 +29,7 @@ export interface TaskDecisionInput {
 }
 
 export interface Orchestrator {
+  transcribeAudio(input: TranscribeAudioInput): Promise<TranscribeAudioOutput>;
   processVoiceTurn(input: ProcessVoiceTurnInput): Promise<GenerationTask>;
   confirmTask(input: TaskDecisionInput): Promise<GenerationTask>;
   cancelTask(input: TaskDecisionInput): Promise<GenerationTask>;
@@ -39,6 +41,11 @@ export function createOrchestrator(
   agentGateway: AgentGateway
 ): Orchestrator {
   return {
+    async transcribeAudio(
+      input: TranscribeAudioInput
+    ): Promise<TranscribeAudioOutput> {
+      return agentGateway.transcribeAudio(input);
+    },
     async processVoiceTurn(input: ProcessVoiceTurnInput): Promise<GenerationTask> {
       const session = await services.repositories.sessions.getById(input.sessionId);
 
@@ -57,7 +64,8 @@ export function createOrchestrator(
       const targetContext = resolveTargetContext(
         session,
         treeNodes,
-        input.targetNodeId
+        input.targetNodeId,
+        transcript.transcriptText
       );
       const assistantInput = buildBrainstormInput({
         session,
@@ -80,9 +88,10 @@ export function createOrchestrator(
         transcriptText: transcript.transcriptText,
         designIntentSummary: assistantOutput.designIntentSummary,
         assistantReply: assistantOutput.assistantReply,
-        confirmationRequired: assistantOutput.confirmationRequired,
+        confirmationRequired: true,
         rewrittenIntentForConfirmation:
-          assistantOutput.rewrittenIntentForConfirmation ?? null
+          assistantOutput.rewrittenIntentForConfirmation ??
+          assistantOutput.assistantReply
       });
 
       await services.repositories.messages.create({
@@ -97,37 +106,22 @@ export function createOrchestrator(
         sessionId: session.id,
         taskId: task.id,
         role: "assistant",
-        kind: assistantOutput.confirmationRequired ? "confirmation" : "summary",
-        content:
-          assistantOutput.rewrittenIntentForConfirmation ??
-          assistantOutput.assistantReply
+        kind: "confirmation",
+        content: assistantOutput.assistantReply
       });
 
-      if (assistantOutput.confirmationRequired) {
-        for (const [index, brief] of assistantOutput.directionBriefs.entries()) {
-          await services.repositories.branchTasks.create({
-            generationTaskId: task.id,
-            branchIndex: index,
-            brief,
-            status: "queued",
-            imageUrl: null,
-            errorMessage: null
-          });
-        }
-
-        return (await services.repositories.generationTasks.getById(task.id)) ?? task;
+      for (const [index, brief] of assistantOutput.directionBriefs.entries()) {
+        await services.repositories.branchTasks.create({
+          generationTaskId: task.id,
+          branchIndex: index,
+          brief,
+          status: "queued",
+          imageUrl: null,
+          errorMessage: null
+        });
       }
 
-      return persistGeneratedBranches({
-        services,
-        agentGateway,
-        session,
-        task,
-        targetNode: targetContext.targetNode,
-        treeNodes,
-        actionType: assistantOutput.actionType,
-        briefs: assistantOutput.directionBriefs
-      });
+      return (await services.repositories.generationTasks.getById(task.id)) ?? task;
     },
 
     async confirmTask(input: TaskDecisionInput): Promise<GenerationTask> {
@@ -196,12 +190,17 @@ export function createOrchestrator(
 function resolveTargetContext(
   session: Session,
   treeNodes: TreeNode[],
-  requestedTargetNodeId: string | null
+  requestedTargetNodeId: string | null,
+  transcriptText: string
 ): { selectedNodeId: string; targetNode: TreeNode | null } {
+  const referencedTargetNodeId = resolveReferencedTargetNodeId(
+    transcriptText,
+    treeNodes
+  );
   const selectedNodeId =
+    referencedTargetNodeId ??
     requestedTargetNodeId ??
     session.activeNodeId ??
-    session.lastMentionedNodeId ??
     session.id;
   const targetNode =
     treeNodes.find((node) => node.id === selectedNodeId) ?? null;
@@ -214,6 +213,49 @@ function resolveTargetContext(
     selectedNodeId,
     targetNode
   };
+}
+
+function resolveReferencedTargetNodeId(
+  transcriptText: string,
+  treeNodes: TreeNode[]
+): string | null {
+  const normalizedTranscript = normalizeNodeReferenceText(transcriptText);
+  const publicNodeNumberMatch =
+    transcriptText.match(/节点\s*([0-9]+)/) ??
+    transcriptText.match(/([0-9]+)\s*号节点/) ??
+    transcriptText.match(/node\s*([0-9]+)/i);
+
+  if (publicNodeNumberMatch) {
+    const publicNodeNumber = Number(publicNodeNumberMatch[1]);
+    const matchedByNumber = treeNodes.find(
+      (node) => node.publicNodeNumber === publicNodeNumber
+    );
+
+    if (matchedByNumber) {
+      return matchedByNumber.id;
+    }
+  }
+
+  const aliasCandidates = treeNodes
+    .flatMap((node) => [node.displayName, ...node.voiceAliases].map((alias) => ({
+      nodeId: node.id,
+      alias: normalizeNodeReferenceText(alias)
+    })))
+    .filter((candidate) => candidate.alias.length > 0)
+    .sort((left, right) => right.alias.length - left.alias.length);
+
+  const matchedAlias = aliasCandidates.find((candidate) =>
+    normalizedTranscript.includes(candidate.alias)
+  );
+
+  return matchedAlias?.nodeId ?? null;
+}
+
+function normalizeNodeReferenceText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[，。、“”"'‘’：:；;（）()【】\[\]、,.!?！？-]/g, "");
 }
 
 function buildBrainstormInput(input: {
@@ -258,7 +300,7 @@ function buildBrainstormInput(input: {
     transcriptText: input.transcriptText,
     selectedNodeId: input.selectedNodeId,
     selectedNodeSummary,
-    ancestorPath: [],
+    ancestorPath: buildAncestorPath(input.targetNode, input.treeNodes),
     siblingSummaries,
     constraints: {
       minBranchCount: 3,
@@ -268,6 +310,32 @@ function buildBrainstormInput(input: {
       inputMode: "voice_only"
     }
   };
+}
+
+function buildAncestorPath(
+  targetNode: TreeNode | null,
+  treeNodes: TreeNode[]
+): BrainstormAssistantInput["ancestorPath"] {
+  const byId = new Map(treeNodes.map((node) => [node.id, node]));
+  const path: BrainstormAssistantInput["ancestorPath"] = [];
+  let currentParentId = targetNode?.parentNodeId ?? null;
+
+  while (currentParentId) {
+    const ancestor = byId.get(currentParentId);
+
+    if (!ancestor) {
+      break;
+    }
+
+    path.unshift({
+      nodeId: ancestor.id,
+      label: ancestor.label,
+      intentSummary: ancestor.intentSummary
+    });
+    currentParentId = ancestor.parentNodeId;
+  }
+
+  return path;
 }
 
 function validateAssistantOutput(
@@ -345,7 +413,14 @@ async function persistGeneratedBranches(input: {
 
     try {
       const sketch = await input.agentGateway.generateSketch(
-        buildSketchInput(brief, depth, input.briefs)
+        buildSketchInput({
+          brief,
+          depth,
+          siblingBriefs: input.briefs,
+          sessionGoal: input.session.goal,
+          targetNode: input.targetNode,
+          treeNodes: input.treeNodes
+        })
       );
       await input.services.repositories.branchTasks.update({
         branchTaskId: branchTask.id,
@@ -443,6 +518,7 @@ async function persistGeneratedBranches(input: {
 
   await input.services.repositories.sessions.updateAfterNodesCreated({
     sessionId: input.session.id,
+    goal: input.task.designIntentSummary,
     nextPublicNodeNumber: firstPublicNodeNumber + nodes.length,
     lastMentionedNodeId: nodes.at(-1)?.id ?? null
   });
@@ -459,23 +535,52 @@ async function persistGeneratedBranches(input: {
   return completedTask;
 }
 
-function buildSketchInput(
-  brief: VisualDirectionBrief,
-  depth: number,
-  siblingBriefs: VisualDirectionBrief[]
-): SketchGenerationInput {
+function buildSketchInput(input: {
+  brief: VisualDirectionBrief;
+  depth: number;
+  siblingBriefs: VisualDirectionBrief[];
+  sessionGoal: string;
+  targetNode: TreeNode | null;
+  treeNodes: TreeNode[];
+}): SketchGenerationInput {
+  const lineageSummary = [
+    input.sessionGoal,
+    ...buildAncestorPath(input.targetNode, input.treeNodes).map(
+      (ancestor) => ancestor.intentSummary
+    ),
+    input.targetNode?.intentSummary
+  ]
+    .filter(Boolean)
+    .join(" -> ");
+  const siblingAxes = input.siblingBriefs
+    .map((sibling) => `${sibling.displayName}:${sibling.variationAxis}`)
+    .join(" | ");
+
   return {
-    brief,
+    brief: {
+      ...input.brief,
+      promptIntent: [
+        input.brief.promptIntent,
+        `主需求：${input.sessionGoal}`,
+        lineageSummary ? `线路上下文：${lineageSummary}` : null,
+        input.targetNode
+          ? `当前延展节点：${input.targetNode.displayName} - ${input.targetNode.intentSummary}`
+          : "当前延展节点：root 总需求",
+        siblingAxes ? `同轮差异轴：${siblingAxes}` : null
+      ]
+        .filter(Boolean)
+        .join("\n")
+    },
     sessionStyle: {
       sketchTone: "loose",
       detailLevel: "early",
       productDomain: "industrial_design"
     },
     depthContext: {
-      depth,
-      branchStage: depth === 0 ? "first_layer" : "deeper_layer"
+      depth: input.depth,
+      branchStage: input.depth === 0 ? "first_layer" : "deeper_layer"
     },
-    siblingContext: siblingBriefs.map((sibling) => ({
+    siblingContext: input.siblingBriefs.map((sibling) => ({
       briefId: sibling.briefId,
       label: sibling.label,
       variationAxis: sibling.variationAxis,

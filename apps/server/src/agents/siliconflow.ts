@@ -15,7 +15,7 @@ import {
   type TranscribeAudioOutput
 } from "./types.js";
 
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 120_000;
 const MAX_ATTEMPTS = 2;
 
 type FetchLike = typeof fetch;
@@ -86,7 +86,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       }
     );
 
-    if (!response.text) {
+    if (typeof response.text !== "string") {
       throw new AgentGatewayError(
         "SiliconFlow ASR response did not include text.",
         "SILICONFLOW_RESPONSE_INVALID"
@@ -141,7 +141,9 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     }
 
     try {
-      return BrainstormAssistantOutputSchema.parse(JSON.parse(content));
+      return BrainstormAssistantOutputSchema.parse(
+        normalizeBrainstormAssistantOutput(JSON.parse(content))
+      );
     } catch (error) {
       throw new AgentGatewayError(
         "SiliconFlow chat response did not match the assistant schema.",
@@ -308,9 +310,38 @@ async function readErrorBody(response: Response): Promise<unknown> {
 function buildBrainstormSystemPrompt(): string {
   return [
     "你是工业设计早期概念发散助手。",
-    "只能输出 JSON object，且必须匹配 BrainstormAssistantOutput schema。",
+    "只能输出 JSON object，不要输出 Markdown、解释文本或代码块。",
     "根据用户语音、当前节点、祖先和同层上下文，决定 expand_branches、branch_deeper 或 refresh_layer。",
-    "高风险结构操作必须设置 confirmationRequired=true，并提供 rewrittenIntentForConfirmation。"
+    "assistantReply 必须先复述用户需求，再说明确认后会采取的具体动作。",
+    "designIntentSummary 必须写成一句新的 root 需求摘要，用来收束后续整条设计线路。",
+    "当前产品要求所有输入都先确认后执行，所以 confirmationRequired 必须始终为 true，并输出 rewrittenIntentForConfirmation。",
+    "targetNodeId 必须等于输入里的 selectedNodeId，除非输入明确要求操作另一个节点。",
+    "branchCount 必须在 constraints.minBranchCount 和 constraints.maxBranchCount 之间，directionBriefs.length 必须等于 branchCount。",
+    "必须严格输出下面这些 camelCase 字段：",
+    JSON.stringify({
+      actionType: "expand_branches | branch_deeper | refresh_layer",
+      targetNodeId: "string",
+      branchCount: 3,
+      designIntentSummary: "string",
+      assistantReply: "string",
+      confirmationRequired: true,
+      rewrittenIntentForConfirmation: "string",
+      promptHints: ["string"],
+      directionBriefs: [
+        {
+          briefId: "brief-1",
+          targetParentNodeId: "string",
+          label: "string",
+          displayName: "32 字以内",
+          intentSummary: "string",
+          formLanguage: ["string"],
+          userNeedResponse: ["string"],
+          inspirationHints: ["string"],
+          variationAxis: "string",
+          promptIntent: "string"
+        }
+      ]
+    })
   ].join("\n");
 }
 
@@ -326,4 +357,26 @@ function buildSketchPrompt(input: SketchGenerationInput): string {
     `阶段：${input.sessionStyle.detailLevel} ${input.depthContext.branchStage}`,
     "早期工业设计草图，白底，线稿，少量灰度阴影，强调可比较的产品形态。"
   ].join("\n");
+}
+
+function normalizeBrainstormAssistantOutput(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const normalized = { ...value } as {
+    confirmationRequired?: unknown;
+    rewrittenIntentForConfirmation?: unknown;
+    assistantReply?: unknown;
+  };
+
+  if (
+    normalized.confirmationRequired === true &&
+    typeof normalized.rewrittenIntentForConfirmation !== "string" &&
+    typeof normalized.assistantReply === "string"
+  ) {
+    normalized.rewrittenIntentForConfirmation = normalized.assistantReply;
+  }
+
+  return normalized;
 }

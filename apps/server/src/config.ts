@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 export type PersistenceMode = "postgres" | "memory";
 export type AgentProvider = "mock" | "siliconflow";
@@ -46,7 +46,7 @@ function parsePersistenceMode(
 
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
-  envFilePath = resolve(process.cwd(), ".env")
+  envFilePath = findDotEnvFile(process.cwd())
 ): AppConfig {
   const dotenv = readDotEnvFile(envFilePath);
   const mergedEnv = {
@@ -76,6 +76,26 @@ export function loadConfig(
     maxBranchCount: Number(mergedEnv.MAX_BRANCH_COUNT ?? 4),
     sessionDomain: "industrial_design"
   };
+}
+
+function findDotEnvFile(startDir: string): string {
+  let currentDir = resolve(startDir);
+
+  while (true) {
+    const candidate = resolve(currentDir, ".env");
+
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+
+    const parentDir = dirname(currentDir);
+
+    if (parentDir === currentDir) {
+      return candidate;
+    }
+
+    currentDir = parentDir;
+  }
 }
 
 function readDotEnvFile(envFilePath: string): Record<string, string> {

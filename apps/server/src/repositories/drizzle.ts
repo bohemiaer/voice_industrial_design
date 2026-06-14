@@ -194,6 +194,7 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
         const updated = await db
           .update(sessionsTable)
           .set({
+            goal: input.goal ?? undefined,
             nextPublicNodeNumber: input.nextPublicNodeNumber,
             activeNodeId: input.activeNodeId ?? undefined,
             lastMentionedNodeId: input.lastMentionedNodeId ?? undefined,

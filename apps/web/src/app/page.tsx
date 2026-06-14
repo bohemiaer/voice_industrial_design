@@ -12,8 +12,8 @@ function WorkbenchPageShell() {
   const session = useWorkbenchStore((state) => state.serverState.session);
   const apiStatus = useWorkbenchStore((state) => state.uiState.apiStatus);
   const apiError = useWorkbenchStore((state) => state.uiState.apiError);
-  const dataMode = useWorkbenchStore((state) => state.uiState.dataMode);
   const initializeApiSession = useWorkbenchStore((state) => state.initializeApiSession);
+  const startNewApiSession = useWorkbenchStore((state) => state.startNewApiSession);
 
   useEffect(() => {
     void initializeApiSession();
@@ -24,9 +24,11 @@ function WorkbenchPageShell() {
       <section className="workbench-shell" data-testid="workbench-shell">
         <TopBar
           title={session.title}
-          dataMode={dataMode}
           apiStatus={apiStatus}
           apiError={apiError}
+          onStartNewSession={() => {
+            void startNewApiSession();
+          }}
         />
 
         <div className="workbench-body">

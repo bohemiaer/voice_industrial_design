@@ -27,6 +27,19 @@ export async function registerSessionRoutes(
   services: AppServices,
   orchestrator: Orchestrator
 ): Promise<void> {
+  app.post("/api/transcriptions", async (request) => {
+    const input = await parseVoiceTurnRequest(request);
+    const transcript = await orchestrator.transcribeAudio({
+      transcriptText: input.transcriptText,
+      audio: input.audio,
+      mimeType: input.mimeType
+    });
+
+    return {
+      transcriptText: transcript.transcriptText
+    };
+  });
+
   app.post("/api/sessions", async (request, reply) => {
     const input = createSessionSchema.parse(request.body);
     const session = await services.repositories.sessions.create(input);

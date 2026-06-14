@@ -38,6 +38,22 @@ test("loadConfig reads SiliconFlow settings from a dotenv file", async () => {
   assert.equal(config.siliconFlowImageModel, "image-model");
 });
 
+test("loadConfig finds a parent dotenv file when server starts from a package directory", async () => {
+  const { loadConfig } = await import(`${configEntry}?parent-dotenv=${Date.now()}`);
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "voice-config-root-"));
+  const packageDir = path.join(tempRoot, "apps", "server");
+  await fs.mkdir(packageDir, { recursive: true });
+  await fs.writeFile(path.join(tempRoot, ".env"), "AGENT_PROVIDER=siliconflow\n");
+
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(packageDir);
+    assert.equal(loadConfig({}).agentProvider, "siliconflow");
+  } finally {
+    process.chdir(previousCwd);
+  }
+});
+
 test("loadConfig selects a preview-friendly persistence mode", async () => {
   const { loadConfig } = await import(`${configEntry}?persistence=${Date.now()}`);
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "voice-config-"));

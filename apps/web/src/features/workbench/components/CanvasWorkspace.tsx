@@ -8,6 +8,7 @@ import {
   type EdgeTypes,
   type NodeTypes
 } from "@xyflow/react";
+import type { TreeNode } from "@voice-industrial-design/shared";
 
 import { useWorkbenchStore } from "../store";
 import type { NodePalette } from "../types";
@@ -132,9 +133,49 @@ export function CanvasWorkspace() {
   const selectNode = useWorkbenchStore((state) => state.selectNode);
   const { fitView } = useReactFlow();
 
+  const rootNode = useMemo<TreeNode>(
+    () => ({
+      id: serverState.session.id,
+      sessionId: serverState.session.id,
+      parentNodeId: null,
+      depth: 0,
+      displayName: "用户需求",
+      label: "用户需求",
+      publicNodeNumber: 1,
+      layerOrdinal: 1,
+      layerVersion: 1,
+      voiceAliases: ["root", "用户需求"],
+      intentSummary: serverState.session.goal,
+      formLanguage: [],
+      userNeedResponse: [],
+      inspirationHints: [],
+      imageUrl: null,
+      status: "ready",
+      createdAt: serverState.session.createdAt,
+      updatedAt: serverState.session.updatedAt
+    }),
+    [serverState.session]
+  );
+
+  const visibleTreeNodes = useMemo<TreeNode[]>(() => {
+    return [
+      rootNode,
+      ...serverState.nodes.map((node) => ({
+        ...node,
+        parentNodeId: node.parentNodeId ?? serverState.session.id,
+        depth: node.depth + 1
+      }))
+    ];
+  }, [rootNode, serverState.nodes, serverState.session.id]);
+
   const childMap = useMemo(() => {
-    return serverState.nodes.reduce<Record<string, string[]>>((acc, node) => {
-      const parentId = node.parentNodeId ?? "__root__";
+    return visibleTreeNodes.reduce<Record<string, string[]>>((acc, node) => {
+      const parentId = node.parentNodeId;
+
+      if (!parentId) {
+        return acc;
+      }
+
       if (!acc[parentId]) {
         acc[parentId] = [];
       }
@@ -142,13 +183,13 @@ export function CanvasWorkspace() {
       acc[parentId].push(node.id);
       return acc;
     }, {});
-  }, [serverState.nodes]);
+  }, [visibleTreeNodes]);
 
   const visibleOrdinalByNodeId = useMemo(() => {
     const depthCounts = new Map<number, number>();
     const ordinals = new Map<string, number>();
 
-    [...serverState.nodes]
+    [...visibleTreeNodes]
       .sort((left, right) => {
         if (left.depth !== right.depth) {
           return left.depth - right.depth;
@@ -163,17 +204,25 @@ export function CanvasWorkspace() {
       });
 
     return ordinals;
-  }, [serverState.nodes]);
+  }, [visibleTreeNodes]);
+
+  const visibleCountByDepth = useMemo(() => {
+    return visibleTreeNodes.reduce<Map<number, number>>((counts, node) => {
+      counts.set(node.depth, (counts.get(node.depth) ?? 0) + 1);
+      return counts;
+    }, new Map<number, number>());
+  }, [visibleTreeNodes]);
 
   const nodes = useMemo<BrainstormFlowNode[]>(() => {
-    return serverState.nodes.map((node, index) => {
+    return visibleTreeNodes.map((node, index) => {
       const meta = createNodeUiMeta(node, index);
       const visibleOrdinal = visibleOrdinalByNodeId.get(node.id) ?? node.layerOrdinal;
+      const visibleCount = visibleCountByDepth.get(node.depth) ?? 1;
 
       return {
         id: node.id,
         type: "brainstorm",
-        position: createNodePosition(node.depth, visibleOrdinal),
+        position: createNodePosition(node.depth, visibleOrdinal, visibleCount),
         sourcePosition: Position.Bottom,
         targetPosition: Position.Top,
         selected: uiState.selectedNodeId === node.id,
@@ -190,10 +239,11 @@ export function CanvasWorkspace() {
   }, [
     childMap,
     selectNode,
-    serverState.nodes,
     uiState.currentTargetNodeId,
     uiState.selectedNodeId,
-    visibleOrdinalByNodeId
+    visibleCountByDepth,
+    visibleOrdinalByNodeId,
+    visibleTreeNodes
   ]);
 
   const flowNodeIds = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
@@ -207,12 +257,12 @@ export function CanvasWorkspace() {
   }, [fitView, flowNodeIds]);
 
   const edges = useMemo<Edge[]>(() => {
-    return serverState.nodes
+    return visibleTreeNodes
       .filter((node) => node.parentNodeId)
       .map((node) => {
         const meta = createNodeUiMeta(
           node,
-          serverState.nodes.findIndex((candidate) => candidate.id === node.id)
+          visibleTreeNodes.findIndex((candidate) => candidate.id === node.id)
         );
 
         return {
@@ -228,7 +278,7 @@ export function CanvasWorkspace() {
           animated: node.status === "generating"
         };
       });
-  }, [serverState.nodes, uiState.currentTargetNodeId]);
+  }, [uiState.currentTargetNodeId, visibleTreeNodes]);
 
   return (
     <section className="workspace-pane" data-testid="canvas-panel">

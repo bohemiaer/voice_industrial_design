@@ -1,11 +1,9 @@
-import type { GenerationTask, Message } from "@voice-industrial-design/shared";
+import type { Message } from "@voice-industrial-design/shared";
+import { useEffect, useRef } from "react";
 
 import { useWorkbenchStore } from "../store";
 import type { MessageDecoration } from "../types";
 import { createNodeUiMeta } from "../uiMeta";
-import { ConfirmationCard } from "./ConfirmationCard";
-import { CurrentTargetBanner } from "./CurrentTargetBanner";
-import { IntentStatusCard } from "./IntentStatusCard";
 import { RecordingBar } from "./RecordingBar";
 
 function getIntentBadge(actionType?: MessageDecoration["actionType"]) {
@@ -64,76 +62,63 @@ function ChatMessage({
   );
 }
 
-const getActiveTask = (tasks: GenerationTask[]) =>
-  tasks.find((task) => task.status === "awaiting_confirmation" || task.status === "generating") ??
-  tasks[tasks.length - 1] ??
-  null;
+const rootPromptSuggestions = [
+  "我想设计一款桌面智能设备，面向居家办公人群",
+  "它需要解决线缆收纳、提醒和轻量交互问题",
+  "风格希望更温和、轻薄、适合放在书桌上"
+];
 
 export function ConversationPanel() {
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
   const toggleSystemMessage = useWorkbenchStore((state) => state.toggleSystemMessage);
-  const confirmPendingAction = useWorkbenchStore((state) => state.confirmPendingAction);
-  const cancelPendingAction = useWorkbenchStore((state) => state.cancelPendingAction);
   const cycleRecordingState = useWorkbenchStore((state) => state.cycleRecordingState);
-  const setRecordingState = useWorkbenchStore((state) => state.setRecordingState);
-  const selectNode = useWorkbenchStore((state) => state.selectNode);
   const submitVoiceTurn = useWorkbenchStore((state) => state.submitVoiceTurn);
   const submitAudioTurn = useWorkbenchStore((state) => state.submitAudioTurn);
   const requestUndo = useWorkbenchStore((state) => state.requestUndo);
 
   const selectedNode =
-    serverState.nodes.find((node) => node.id === uiState.selectedNodeId) ?? serverState.nodes[0];
-  const currentTargetNode =
-    serverState.nodes.find((node) => node.id === uiState.currentTargetNodeId) ?? null;
-  const activeTask = getActiveTask(serverState.generationTasks);
+    uiState.selectedNodeId === serverState.session.id
+      ? null
+      : serverState.nodes.find((node) => node.id === uiState.selectedNodeId) ??
+        serverState.nodes[0];
   const selectedNodeIndex = selectedNode
     ? serverState.nodes.findIndex((node) => node.id === selectedNode.id)
     : -1;
   const prompts = selectedNode
     ? createNodeUiMeta(selectedNode, Math.max(selectedNodeIndex, 0)).prompts
-    : ["围绕桌面智能设备生成四个差异化工业设计方向"];
+    : rootPromptSuggestions;
+  const thinkingMessage = uiState.isThinking
+    ? ({
+        id: "optimistic-thinking",
+        sessionId: serverState.session.id,
+        taskId: null,
+        role: "assistant",
+        kind: "status",
+        content: "思考中...",
+        createdAt: new Date(0).toISOString()
+      } satisfies Message)
+    : null;
+  const visibleMessages = thinkingMessage
+    ? [...serverState.messages, thinkingMessage]
+    : serverState.messages;
+  const scrollRegionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!scrollRegionRef.current) {
+      return;
+    }
+
+    scrollRegionRef.current.scrollTop = scrollRegionRef.current.scrollHeight;
+  }, [visibleMessages]);
 
   const handlePromptClick = (prompt: string) => {
-    if (uiState.dataMode === "api") {
-      if (prompt.includes("撤销")) {
-        void requestUndo();
-        return;
-      }
-
-      void submitVoiceTurn(prompt);
-      return;
-    }
-
-    const matchedNode = serverState.nodes.find(
-      (node) =>
-        prompt.includes(node.displayName) ||
-        prompt.includes(`节点 ${node.publicNodeNumber}`) ||
-        prompt.includes(`节点${node.publicNodeNumber}`)
-    );
-
-    if (matchedNode) {
-      selectNode(matchedNode.id);
-      setRecordingState("processing");
-      return;
-    }
-
     if (prompt.includes("撤销")) {
-      useWorkbenchStore.getState().setScenario("undo-review");
+      void requestUndo();
       return;
     }
 
-    if (prompt.includes("刷新")) {
-      useWorkbenchStore.getState().setScenario("refresh-layer");
-      return;
-    }
-
-    if (prompt.includes("继续发散") || prompt.includes("子方向")) {
-      useWorkbenchStore.getState().setScenario("branch-review");
-      return;
-    }
-
-    setRecordingState("listening");
+    void submitVoiceTurn(prompt);
   };
 
   return (
@@ -146,43 +131,14 @@ export function ConversationPanel() {
               已选中 <strong>NODE {selectedNode.publicNodeNumber}</strong> · {selectedNode.displayName}
             </p>
           ) : (
-            <p>正在等待真实 API 返回第一批设计节点</p>
+            <p>当前聚焦 ROOT 需求，确认后会先更新主需求再展开节点</p>
           )}
         </div>
       </header>
 
-      <div className="sidebar-scroll-region">
-        {selectedNode ? (
-          <CurrentTargetBanner
-            selectedNode={selectedNode}
-            currentTargetNode={currentTargetNode}
-            summary={uiState.lastActionSummary}
-          />
-        ) : (
-          <section className="sidebar-focus">
-            <span className="sidebar-focus__label">Live API</span>
-            <h3>连接真实数据中</h3>
-            <p>{uiState.lastActionSummary ?? "正在创建真实 API session。"}</p>
-          </section>
-        )}
-
-        <IntentStatusCard task={activeTask} />
-        <ConfirmationCard
-          pendingAction={uiState.pendingAction}
-          onConfirm={confirmPendingAction}
-          onCancel={cancelPendingAction}
-        />
-
-        {selectedNode ? (
-          <section className="sidebar-focus">
-            <span className="sidebar-focus__label">Current focus</span>
-            <h3>{selectedNode.displayName}</h3>
-            <p>{selectedNode.intentSummary}</p>
-          </section>
-        ) : null}
-
+      <div className="sidebar-scroll-region" ref={scrollRegionRef}>
         <div className="sidebar-stream">
-          {serverState.messages.map((message) => (
+          {visibleMessages.map((message) => (
             <ChatMessage
               key={message.id}
               message={message}
@@ -196,11 +152,11 @@ export function ConversationPanel() {
       <RecordingBar
         prompts={prompts}
         recordingState={uiState.recordingState}
+        liveTranscriptText={uiState.liveTranscriptText}
         onPromptClick={handlePromptClick}
+        onTextSubmit={submitVoiceTurn}
         onCycleRecordingState={cycleRecordingState}
-        onRecordingComplete={(audio) => {
-          void submitAudioTurn(audio);
-        }}
+        onRecordingComplete={submitAudioTurn}
       />
     </aside>
   );

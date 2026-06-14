@@ -130,6 +130,17 @@ test("transcribeAudio sends multipart audio to SiliconFlow ASR endpoint", async 
   assert.equal(calls[0].init.body.get("file").name, "recording.webm");
 });
 
+test("transcribeAudio accepts empty transcript text from SiliconFlow ASR", async () => {
+  const gateway = await createGateway(async () => jsonResponse({ text: "" }));
+
+  const result = await gateway.transcribeAudio({
+    audio: Buffer.from("fake-audio"),
+    mimeType: "audio/wav"
+  });
+
+  assert.equal(result.transcriptText, "");
+});
+
 test("runBrainstormAssistant sends JSON mode chat completion request", async () => {
   const calls = [];
   const gateway = await createGateway(async (url, init) => {
@@ -153,6 +164,10 @@ test("runBrainstormAssistant sends JSON mode chat completion request", async () 
   assert.equal(body.model, "deepseek-ai/DeepSeek-V4-Flash");
   assert.deepEqual(body.response_format, { type: "json_object" });
   assert.equal(body.enable_thinking, false);
+  assert.match(body.messages[0].content, /actionType/);
+  assert.match(body.messages[0].content, /directionBriefs/);
+  assert.match(body.messages[0].content, /targetNodeId/);
+  assert.match(body.messages[0].content, /rewrittenIntentForConfirmation/);
 });
 
 test("generateSketch sends image generation request and maps returned image URL", async () => {
@@ -214,5 +229,31 @@ test("SiliconFlow gateway wraps invalid structured output as AgentGatewayError",
       name: "AgentGatewayError",
       code: "SILICONFLOW_RESPONSE_INVALID"
     }
+  );
+});
+
+test("runBrainstormAssistant falls back to assistantReply when confirmation intent is omitted", async () => {
+  const gateway = await createGateway(async () =>
+    jsonResponse({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              ...createAssistantOutput(),
+              confirmationRequired: true,
+              rewrittenIntentForConfirmation: undefined
+            })
+          }
+        }
+      ]
+    })
+  );
+
+  const result = await gateway.runBrainstormAssistant(createBrainstormInput());
+
+  assert.equal(result.confirmationRequired, true);
+  assert.equal(
+    result.rewrittenIntentForConfirmation,
+    result.assistantReply
   );
 });

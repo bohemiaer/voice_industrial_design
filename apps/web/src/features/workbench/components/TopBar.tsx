@@ -1,24 +1,24 @@
-import type { WorkbenchDataMode, WorkbenchUiState } from "../types";
+import type { WorkbenchUiState } from "../types";
 
 type TopBarProps = {
   title: string;
-  dataMode: WorkbenchDataMode;
   apiStatus: WorkbenchUiState["apiStatus"];
   apiError: string | null;
+  onStartNewSession: () => void;
 };
 
 export function TopBar({
   title,
-  dataMode,
   apiStatus,
-  apiError
+  apiError,
+  onStartNewSession
 }: TopBarProps) {
   const statusCopy =
-    dataMode === "api"
-      ? apiStatus === "loading"
-        ? "真实 API 连接中"
-        : "真实 API 驱动"
-      : "Demo fixture";
+    apiStatus === "loading"
+      ? "真实 API 连接中"
+      : apiStatus === "error"
+        ? "真实 API 错误"
+        : "真实 API 驱动";
 
   return (
     <header className="topbar">
@@ -28,6 +28,9 @@ export function TopBar({
       </div>
 
       <div className="topbar__scenarios">
+        <button className="topbar-reset" type="button" onClick={onStartNewSession}>
+          重新开始测试
+        </button>
         <span className={["api-status", `api-status--${apiStatus}`].join(" ")} title={apiError ?? statusCopy}>
           {statusCopy}
         </span>
