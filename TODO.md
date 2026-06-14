@@ -128,47 +128,47 @@
 - [x] 初始化 `apps/web`
 - [x] 搭建 `Next.js` 基础页面
 - [x] 接入基础样式
-- [ ] 接入 `React Flow`
-- [ ] 搭建 `Zustand` store
-- [ ] 定义服务端状态镜像结构
-- [ ] 定义本地 UI 状态结构
+- [x] 接入 `React Flow`
+- [x] 搭建 `Zustand` store
+- [x] 定义服务端状态镜像结构
+- [x] 定义本地 UI 状态结构
 
 ## 10. 前端核心组件
 
-- [ ] 实现 `TopBar`
-- [ ] 实现 `CanvasWorkspace`
-- [ ] 实现 `BrainstormNodeCard`
-- [ ] 实现 `ConversationPanel`
-- [ ] 实现 `CurrentTargetBanner`
-- [ ] 实现 `RecordingBar`
-- [ ] 实现 `IntentStatusCard`
-- [ ] 实现 `ConfirmationCard`
-- [ ] 实现运行中展开、完成后折叠的消息展示策略
-- [ ] 实现节点高亮与当前目标态
+- [x] 实现 `TopBar`
+- [x] 实现 `CanvasWorkspace`
+- [x] 实现 `BrainstormNodeCard`
+- [x] 实现 `ConversationPanel`
+- [x] 实现 `CurrentTargetBanner`
+- [x] 实现 `RecordingBar`
+- [x] 实现 `IntentStatusCard`
+- [x] 实现 `ConfirmationCard`
+- [x] 实现运行中展开、完成后折叠的消息展示策略
+- [x] 实现节点高亮与当前目标态
 
 ## 11. Mock 页面与交互
 
 - [x] 用 mock 数据跑通首轮生成页面
 - [x] 用 mock 数据跑通高风险确认页面
-- [ ] 用 mock 数据跑通单次撤销页面
+- [x] 用 mock 数据跑通单次撤销页面
 - [x] 用 mock 数据跑通节点选中页面
-- [ ] 准备演示用 fixture：首层 4 个方向、下钻 3 个方向、刷新当前层结果
+- [x] 准备演示用 fixture：首层 4 个方向、下钻 3 个方向、刷新当前层结果
 
 ## 12. 前后端联调
 
-- [ ] 用真实 API 替换 session mock
-- [ ] 用真实 API 替换 tree mock
-- [ ] 用真实 API 替换 message mock
-- [ ] 用真实 API 替换 task mock
-- [ ] 接通 confirm / cancel / undo
-- [ ] 接通真实录音上传
-- [ ] 确认 `awaiting_confirmation` 页面状态正确
-- [ ] 确认 branch 部分失败可以正确展示
+- [x] 用真实 API 替换 session mock
+- [x] 用真实 API 替换 tree mock
+- [x] 用真实 API 替换 message mock
+- [x] 用真实 API 替换 task mock
+- [x] 接通 confirm / cancel / undo
+- [x] 接通真实录音上传
+- [x] 确认 `awaiting_confirmation` 页面状态正确
+- [x] 确认 branch 部分失败可以正确展示
 
 ## 13. 测试与验收
 
 - [ ] 跑通 shared schema 测试
-- [ ] 跑通后端集成测试
+- [x] 跑通后端集成测试
 - [ ] 跑通前端组件测试
 - [ ] 跑通首轮生成 e2e
 - [ ] 跑通高风险确认 e2e
