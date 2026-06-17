@@ -6,7 +6,7 @@
 
 ## DEMO视频地址
 
-<br />
+B站：<https://b23.tv/HmcLyaL>
 
 ## 项目现状
 
@@ -270,3 +270,4 @@ SESSION_DOMAIN=industrial_design
 - [比赛 PR 计划](./docs/superpowers/plans/2026-06-12-contest-pr-plan.md)
 - [HTML 预览计划](./docs/superpowers/plans/2026-06-12-html-preview-workbench.md)
 - [开发 TODO](./TODO.md)
+
