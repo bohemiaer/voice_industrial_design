@@ -44,6 +44,7 @@ export const TreeNodeSchema = z.object({
   id: z.string().min(1),
   sessionId: z.string().min(1),
   parentNodeId: z.string().min(1).nullable(),
+  childGroupId: z.string().min(1).nullable().default(null),
   depth: z.number().int().nonnegative(),
   displayName: z.string().min(1).max(32),
   label: z.string().min(1),
@@ -66,7 +67,8 @@ export const SessionSchema = z.object({
   title: z.string().min(1),
   goal: z.string().min(1),
   productDomain: ProductDomainSchema,
-  activeNodeId: z.string().min(1).nullable(),
+  currentSelectedNodeId: z.string().min(1).nullable(),
+  lastExecutedTargetNodeId: z.string().min(1).nullable(),
   pendingNodeId: z.string().min(1).nullable(),
   lastMentionedNodeId: z.string().min(1).nullable(),
   nextPublicNodeNumber: z.number().int().positive(),
@@ -82,6 +84,12 @@ export const MessageSchema = z.object({
   kind: MessageKindSchema,
   content: z.string().min(1),
   createdAt: IsoDateTimeSchema
+});
+
+export const ConversationHistoryItemSchema = z.object({
+  role: MessageRoleSchema,
+  kind: MessageKindSchema,
+  content: z.string().min(1)
 });
 
 export const VisualDirectionBriefSchema = z.object({
@@ -118,6 +126,7 @@ export const BrainstormAssistantInputSchema = z.object({
       intentSummary: z.string().min(1)
     })
   ),
+  conversationHistory: z.array(ConversationHistoryItemSchema),
   siblingSummaries: z.array(
     z.object({
       nodeId: z.string().min(1),
@@ -142,7 +151,7 @@ export const BrainstormAssistantOutputSchema = z
     branchCount: z.number().int().positive(),
     designIntentSummary: z.string().min(1),
     assistantReply: z.string().min(1),
-    confirmationRequired: z.boolean(),
+    confirmationRequired: z.boolean().default(false),
     rewrittenIntentForConfirmation: z.string().min(1).optional(),
     promptHints: z.array(z.string().min(1)),
     directionBriefs: z.array(VisualDirectionBriefSchema)
@@ -215,9 +224,9 @@ export const GenerationTaskSchema = z.object({
   actionType: BrainstormActionTypeSchema,
   targetNodeId: z.string().min(1),
   status: TaskStatusSchema,
-  confirmationRequired: z.boolean(),
-  confirmationStatus: ConfirmationStatusSchema,
-  rewrittenIntentForConfirmation: z.string().min(1).nullable(),
+  confirmationRequired: z.boolean().default(false),
+  confirmationStatus: ConfirmationStatusSchema.default("not_required"),
+  rewrittenIntentForConfirmation: z.string().min(1).nullable().default(null),
   branchCount: z.number().int().positive(),
   transcriptText: z.string().min(1),
   designIntentSummary: z.string().min(1),
@@ -233,8 +242,14 @@ export const TreeOperationSchema = z.object({
   type: TreeOperationTypeSchema,
   targetNodeId: z.string().min(1),
   targetLayerVersion: z.number().int().positive().nullable(),
+  affectedChildGroupId: z.string().min(1).nullable().default(null),
+  insertedNodeIds: z.array(z.string().min(1)),
+  deletedNodeIds: z.array(z.string().min(1)).default([]),
   supersededNodeIds: z.array(z.string().min(1)),
   restoredNodeIds: z.array(z.string().min(1)),
+  undoOfOperationId: z.string().min(1).nullable().default(null),
+  redoOfOperationId: z.string().min(1).nullable().default(null),
+  payload: z.record(z.string(), z.unknown()).default({}),
   createdAt: IsoDateTimeSchema
 });
 

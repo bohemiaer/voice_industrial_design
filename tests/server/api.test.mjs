@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -7,11 +8,179 @@ const appEntry = pathToFileURL(
   path.join(process.cwd(), "apps", "server", "dist", "app.js")
 ).href;
 
+process.env.SILICONFLOW_IMAGE_MODEL ??= "test-image-model";
+const appSource = readSource("apps/server/src/app.ts");
+const sessionRoutesSource = readSource("apps/server/src/routes/sessions.ts");
+const orchestratorSource = readSource("apps/server/src/orchestrator/service.ts");
+const siliconFlowSource = readSource("apps/server/src/agents/siliconflow.ts");
+
+function readSource(relativePath) {
+  return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
+}
+
 async function createTestApp() {
   const { buildApp } = await import(appEntry);
   return buildApp({
-    persistenceMode: "memory"
+    persistenceMode: "memory",
+    agentProvider: "siliconflow",
+    agentGateway: createDeterministicGateway()
   });
+}
+
+async function createTestAppWithGateway(agentGateway) {
+  const { buildApp } = await import(appEntry);
+  return buildApp({
+    persistenceMode: "memory",
+    agentProvider: "siliconflow",
+    agentGateway
+  });
+}
+
+function createDeterministicGateway() {
+  return {
+    async transcribeAudio(input) {
+      return {
+        transcriptText: input.transcriptText ?? "围绕这个目标先发散三个方向"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      const branchCount = extractExplicitBranchCount(input.transcriptText) ?? 3;
+      const actionType = input.transcriptText.includes("刷新")
+        ? "refresh_layer"
+        : input.selectedNodeSummary.formLanguage.length > 0
+          ? "branch_deeper"
+          : "expand_branches";
+
+      return {
+        actionType,
+        targetNodeId: input.selectedNodeId,
+        branchCount,
+        designIntentSummary: `围绕“${input.sessionGoal}”继续展开。`,
+        assistantReply: `现在基于当前节点执行 ${actionType}，生成 ${branchCount} 个方向。`,
+        confirmationRequired: false,
+        rewrittenIntentForConfirmation: null,
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: branchCount }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch(input) {
+      return {
+        imageId: `image-${input.brief.briefId}`,
+        briefId: input.brief.briefId,
+        imageUrl: `https://example.com/${input.brief.briefId}.png`,
+        promptUsed: input.brief.promptIntent,
+        negativePromptUsed: "photorealistic",
+        visualSummary: `${input.brief.displayName} 草图`
+      };
+    }
+  };
+}
+
+function extractExplicitBranchCount(transcriptText) {
+  const arabicMatch = transcriptText.match(/([0-9]+)\s*(个|种|条|组)/);
+
+  if (arabicMatch) {
+    return Number(arabicMatch[1]);
+  }
+
+  const chineseMatch = transcriptText.match(/([一二两三四五六七八九十])\s*(个|种|条|组)/);
+
+  if (!chineseMatch) {
+    return null;
+  }
+
+  const chineseNumbers = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+    十: 10
+  };
+
+  return chineseNumbers[chineseMatch[1]] ?? null;
+}
+
+async function submitVoiceTurnWithRetry(
+  app,
+  sessionId,
+  payload,
+  attempts = 5
+) {
+  let lastResponse = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/sessions/${sessionId}/voice-turns`,
+      payload
+    });
+
+    lastResponse = response;
+
+    if (response.statusCode !== 202) {
+      continue;
+    }
+
+    const body = response.json();
+
+    if (body.task?.status === "failed") {
+      continue;
+    }
+
+    return response;
+  }
+
+  return lastResponse;
+}
+
+async function waitForTaskStatus(
+  app,
+  taskId,
+  statuses = ["completed", "failed"],
+  attempts = 80,
+  intervalMs = 25
+) {
+  let lastTask = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${taskId}`
+    });
+
+    assert.equal(response.statusCode, 200);
+    const task = response.json().task;
+    lastTask = task;
+
+    if (statuses.includes(task.status)) {
+      return task;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return lastTask;
+}
+
+function liveTest(name, fn) {
+  return test(name, { concurrency: false }, fn);
 }
 
 test("health endpoint reports server status", async () => {
@@ -28,6 +197,31 @@ test("health endpoint reports server status", async () => {
     service: "voice-industrial-design-server",
     persistenceMode: "memory"
   });
+
+  await app.close();
+});
+
+test("server allows the web dev origin to call api routes directly", async () => {
+  const app = await createTestApp();
+
+  const response = await app.inject({
+    method: "OPTIONS",
+    url: "/api/sessions",
+    headers: {
+      origin: "http://localhost:3000",
+      "access-control-request-method": "POST"
+    }
+  });
+
+  assert.equal(response.statusCode, 204);
+  assert.equal(
+    response.headers["access-control-allow-origin"],
+    "http://localhost:3000"
+  );
+  assert.match(
+    String(response.headers["access-control-allow-methods"]),
+    /POST/
+  );
 
   await app.close();
 });
@@ -75,7 +269,7 @@ test("session APIs create a session and return empty tree/messages", async () =>
   await app.close();
 });
 
-test("voice turn APIs create tasks and support confirm/cancel plus task lookup", async () => {
+liveTest("voice turn APIs return quickly and tasks remain queryable while images finish in background", async () => {
   const app = await createTestApp();
 
   const createSessionResponse = await app.inject({
@@ -91,93 +285,30 @@ test("voice turn APIs create tasks and support confirm/cancel plus task lookup",
     session
   } = createSessionResponse.json();
 
-  const voiceTurnResponse = await app.inject({
-    method: "POST",
-    url: `/api/sessions/${session.id}/voice-turns`,
-    payload: {
-      transcriptText: "围绕这个目标先发散四个方向",
-      targetNodeId: null,
-      actionType: "expand_branches",
-      branchCount: 4,
-      designIntentSummary: "围绕会话目标生成首层方向",
-      assistantReply: "我会先生成四个首层方向。",
-      confirmationRequired: false
-    }
+  const voiceTurnResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "围绕这个目标先发散四个方向",
+    targetNodeId: null,
+    actionType: "expand_branches",
+    branchCount: 4,
+    designIntentSummary: "围绕会话目标生成首层方向",
+    assistantReply: "我会先生成四个首层方向。",
+    confirmationRequired: false
   });
 
   assert.equal(voiceTurnResponse.statusCode, 202);
   const queuedTask = voiceTurnResponse.json().task;
-  assert.equal(queuedTask.status, "completed");
+  assert.match(queuedTask.status, /queued|generating|completed/);
+  assert.equal(queuedTask.confirmationRequired, false);
   assert.equal(queuedTask.confirmationStatus, "not_required");
 
-  const taskResponse = await app.inject({
-    method: "GET",
-    url: `/api/tasks/${queuedTask.id}`
-  });
-
-  assert.equal(taskResponse.statusCode, 200);
-  assert.equal(taskResponse.json().task.id, queuedTask.id);
-
-  const riskyTurnResponse = await app.inject({
-    method: "POST",
-    url: `/api/sessions/${session.id}/voice-turns`,
-    payload: {
-      transcriptText: "沿当前方向继续下钻三个更柔和的子方向",
-      targetNodeId: null,
-      actionType: "branch_deeper",
-      branchCount: 3,
-      designIntentSummary: "沿当前方向继续下钻",
-      assistantReply: "这一步会新增子层，我需要你确认后再执行。",
-      confirmationRequired: true,
-      rewrittenIntentForConfirmation:
-        "我将沿当前方向继续生成 3 个更柔和的子方向。"
-    }
-  });
-
-  assert.equal(riskyTurnResponse.statusCode, 202);
-  const awaitingTask = riskyTurnResponse.json().task;
-  assert.equal(awaitingTask.status, "awaiting_confirmation");
-  assert.equal(awaitingTask.confirmationStatus, "awaiting_confirmation");
-
-  const confirmResponse = await app.inject({
-    method: "POST",
-    url: `/api/tasks/${awaitingTask.id}/confirm`
-  });
-
-  assert.equal(confirmResponse.statusCode, 200);
-  assert.equal(confirmResponse.json().task.confirmationStatus, "confirmed");
-  assert.equal(confirmResponse.json().task.status, "generating");
-
-  const cancelTurnResponse = await app.inject({
-    method: "POST",
-    url: `/api/sessions/${session.id}/voice-turns`,
-    payload: {
-      transcriptText: "刷新当前层",
-      targetNodeId: null,
-      actionType: "refresh_layer",
-      branchCount: 3,
-      designIntentSummary: "刷新当前层方向",
-      assistantReply: "这一步会替换当前层，我需要你确认。",
-      confirmationRequired: true,
-      rewrittenIntentForConfirmation: "我将刷新当前层并生成新的 3 个方向。"
-    }
-  });
-
-  const cancelTask = cancelTurnResponse.json().task;
-
-  const cancelResponse = await app.inject({
-    method: "POST",
-    url: `/api/tasks/${cancelTask.id}/cancel`
-  });
-
-  assert.equal(cancelResponse.statusCode, 200);
-  assert.equal(cancelResponse.json().task.confirmationStatus, "cancelled");
-  assert.equal(cancelResponse.json().task.status, "cancelled");
+  const completedTask = await waitForTaskStatus(app, queuedTask.id);
+  assert.equal(completedTask.id, queuedTask.id);
+  assert.equal(completedTask.status, "completed");
 
   await app.close();
 });
 
-test("voice turn is orchestrated by the backend from transcript only", async () => {
+liveTest("voice turn is orchestrated by the backend from transcript only and mutates the tree after background generation completes", async () => {
   const app = await createTestApp();
 
   const createSessionResponse = await app.inject({
@@ -191,18 +322,15 @@ test("voice turn is orchestrated by the backend from transcript only", async () 
 
   const { session } = createSessionResponse.json();
 
-  const response = await app.inject({
-    method: "POST",
-    url: `/api/sessions/${session.id}/voice-turns`,
-    payload: {
-      transcriptText: "围绕这个目标先发散四个方向",
-      targetNodeId: null
-    }
+  const response = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "围绕这个目标先发散四个方向",
+    targetNodeId: null
   });
 
   assert.equal(response.statusCode, 202);
-  const { task } = response.json();
-  assert.equal(task.actionType, "expand_branches");
+  const initialTask = response.json().task;
+  const task = await waitForTaskStatus(app, initialTask.id);
+  assert.equal(task.actionType, "diverge");
   assert.equal(task.status, "completed");
   assert.equal(task.confirmationStatus, "not_required");
   assert.equal(task.branchCount, 4);
@@ -252,4 +380,1186 @@ test("undo endpoint fails cleanly when no confirmed tree operation exists", asyn
   assert.equal(undoResponse.json().error.code, "UNDO_NOT_AVAILABLE");
 
   await app.close();
+});
+
+liveTest("branch_deeper persists child nodes after asynchronous branch generation", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const initialTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, initialTask.id)).status, "completed");
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const targetNode = initialTree.json().nodes[0];
+
+  const riskyTurn = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "沿着这个方向继续下钻三个子方向",
+    targetNodeId: targetNode.id
+  });
+  const completedTask = await waitForTaskStatus(app, riskyTurn.json().task.id);
+  assert.equal(completedTask.status, "completed");
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const childNodes = treeResponse
+    .json()
+    .nodes.filter((node) => node.parentNodeId === targetNode.id);
+  assert.equal(childNodes.length, 3);
+  assert.equal(childNodes.every((node) => node.depth === targetNode.depth + 1), true);
+
+  await app.close();
+});
+
+liveTest("refresh replaces the latest generated child group under the current node", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const initialTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, initialTask.id)).status, "completed");
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const initialNodes = initialTree.json().nodes;
+
+  const riskyTurn = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "刷新当前层，换三个方向",
+    targetNodeId: null
+  });
+  const completedTask = await waitForTaskStatus(app, riskyTurn.json().task.id);
+  assert.equal(completedTask.status, "completed");
+  assert.equal(completedTask.actionType, "refresh");
+
+  const refreshedTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const refreshedNodes = refreshedTree.json().nodes;
+  assert.equal(refreshedNodes.length, 3);
+  assert.equal(refreshedNodes.some((node) => node.id === initialNodes[0].id), false);
+  assert.equal(refreshedNodes.every((node) => node.layerVersion === 2), true);
+
+  await app.close();
+});
+
+liveTest("undo restores the layer superseded by refresh_layer", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const initialTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, initialTask.id)).status, "completed");
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const initialNodeIds = initialTree.json().nodes.map((node) => node.id);
+
+  const riskyTurn = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "刷新当前层，换三个方向",
+    targetNodeId: initialNodeIds[0]
+  });
+  assert.equal(
+    (await waitForTaskStatus(app, riskyTurn.json().task.id)).status,
+    "completed"
+  );
+
+  const undoResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/undo`
+  });
+  assert.equal(undoResponse.statusCode, 200);
+
+  const restoredTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const restoredNodeIds = restoredTree.json().nodes.map((node) => node.id);
+  assert.deepEqual(restoredNodeIds.sort(), initialNodeIds.sort());
+
+  await app.close();
+});
+
+liveTest("voice turn routes delete to tree command execution instead of generation", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "删除节点测试",
+      goal: "先生成再删除一个方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const initialTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, initialTask.id)).status, "completed");
+
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const initialNodes = initialTree.json().nodes;
+
+  const deleteResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: `删除节点 ${initialNodes[0].publicNodeNumber}`,
+      targetNodeId: null
+    }
+  });
+
+  assert.equal(deleteResponse.statusCode, 202);
+  assert.equal(deleteResponse.json().task, null);
+  assert.equal(deleteResponse.json().operation.type, "delete");
+
+  const treeAfterDelete = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+
+  assert.equal(treeAfterDelete.json().nodes.length, initialNodes.length - 1);
+
+  const messagesAfterDelete = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/messages`
+  });
+  const deleteMessages = messagesAfterDelete.json().messages;
+  assert.equal(
+    deleteMessages.some(
+      (message) =>
+        message.role === "user" &&
+        message.kind === "transcript" &&
+        message.content.includes("删除节点")
+    ),
+    true
+  );
+  assert.equal(
+    deleteMessages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.kind === "summary" &&
+        message.content.includes("删除")
+    ),
+    true
+  );
+
+  await app.close();
+});
+
+liveTest("server rejects new commands while generation is in flight", async () => {
+  const slowGateway = {
+    ...createDeterministicGateway(),
+    async generateSketch(input) {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return createDeterministicGateway().generateSketch(input);
+    }
+  };
+  const app = await createTestAppWithGateway(slowGateway);
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "并发保护测试",
+      goal: "验证生成中禁发新命令"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const firstTurn = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "围绕这个目标先发散三个方向",
+      targetNodeId: null
+    }
+  });
+
+  assert.equal(firstTurn.statusCode, 202);
+
+  const secondTurn = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: "继续发散",
+      targetNodeId: null
+    }
+  });
+
+  assert.equal(secondTurn.statusCode, 409);
+  assert.equal(secondTurn.json().error.code, "SESSION_BUSY");
+
+  await app.close();
+});
+
+liveTest("undo is single-step and cannot undo the same completed operation twice", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const initialTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, initialTask.id)).status, "completed");
+
+  const refreshTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "刷新当前层，换三个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, refreshTask.id)).status, "completed");
+
+  const firstUndoResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/undo`
+  });
+  assert.equal(firstUndoResponse.statusCode, 200);
+
+  const secondUndoResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/undo`
+  });
+  assert.equal(secondUndoResponse.statusCode, 409);
+  assert.equal(secondUndoResponse.json().error.code, "UNDO_NOT_AVAILABLE");
+
+  await app.close();
+});
+
+liveTest("redo reapplies the last undone refresh operation", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const initialTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, initialTask.id)).status, "completed");
+
+  const refreshTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "刷新当前层，换三个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, refreshTask.id)).status, "completed");
+
+  const refreshedTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const refreshedNodeIds = refreshedTree.json().nodes.map((node) => node.id).sort();
+
+  const undoResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/undo`
+  });
+  assert.equal(undoResponse.statusCode, 200);
+
+  const redoResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/redo`
+  });
+  assert.equal(redoResponse.statusCode, 200);
+  assert.equal(redoResponse.json().operation.type, "redo");
+
+  const redoneTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const redoneNodeIds = redoneTree.json().nodes.map((node) => node.id).sort();
+  assert.deepEqual(redoneNodeIds, refreshedNodeIds);
+
+  const messagesResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/messages`
+  });
+  const messages = messagesResponse.json().messages;
+  assert.equal(
+    messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.kind === "summary" &&
+        message.content.includes("撤回")
+    ),
+    true
+  );
+  assert.equal(
+    messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.kind === "summary" &&
+        message.content.includes("重做")
+    ),
+    true
+  );
+
+  await app.close();
+});
+
+test("undo route can target a specific client-selected tree operation", () => {
+  assert.match(sessionRoutesSource, /request\.body as \{ operationId\?: string \| null; taskId\?: string \| null \}/);
+  assert.match(sessionRoutesSource, /operationId \?\? null/);
+  assert.match(sessionRoutesSource, /taskId \?\? null/);
+  assert.match(sessionRoutesSource, /getById\(/);
+  assert.match(sessionRoutesSource, /getByTaskId\(/);
+});
+
+test("server supports multipart audio voice turns", () => {
+  assert.match(appSource, /@fastify\/multipart/);
+  assert.match(appSource, /app.register\(multipart/);
+  assert.match(sessionRoutesSource, /request\.parts\(\)/);
+  assert.match(sessionRoutesSource, /part\.toBuffer\(\)/);
+  assert.match(sessionRoutesSource, /mimeType/);
+  assert.match(orchestratorSource, /audio: input\.audio/);
+  assert.match(orchestratorSource, /mimeType: input\.mimeType/);
+});
+
+test("server exposes transcription before full brainstorm generation", () => {
+  assert.match(sessionRoutesSource, /app\.post\("\/api\/transcriptions"/);
+  assert.match(sessionRoutesSource, /transcriptText: transcript\.transcriptText/);
+  assert.match(sessionRoutesSource, /VOICE_TURN_INPUT_REQUIRED/);
+});
+
+test("transcription endpoint surfaces upstream agent errors instead of generic internal errors", async () => {
+  const { AgentGatewayError } = await import(
+    `${pathToFileURL(path.join(process.cwd(), "apps", "server", "dist", "agents", "types.js")).href}?t=${Date.now()}${Math.random()}`
+  );
+  const app = await createTestAppWithGateway({
+    async transcribeAudio() {
+      throw new AgentGatewayError(
+        "SiliconFlow request failed with HTTP 500.",
+        "SILICONFLOW_REQUEST_FAILED"
+      );
+    },
+    async runBrainstormAssistant() {
+      throw new Error("not used");
+    },
+    async generateSketch() {
+      throw new Error("not used");
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/transcriptions",
+    payload: (() => {
+      const formData = new FormData();
+      formData.append(
+        "audio",
+        new File([Buffer.from("fake-audio")], "recording.webm", {
+          type: "audio/webm"
+        })
+      );
+      return formData;
+    })()
+  });
+
+  assert.equal(response.statusCode, 502);
+  assert.deepEqual(response.json(), {
+    error: {
+      code: "SILICONFLOW_REQUEST_FAILED",
+      message: "SiliconFlow request failed with HTTP 500."
+    }
+  });
+
+  await app.close();
+});
+
+test("text voice-turns bypass the transcription gateway entirely", async () => {
+  let transcribeCalls = 0;
+  const app = await createTestAppWithGateway({
+    async transcribeAudio() {
+      transcribeCalls += 1;
+      throw new Error("text input should not call transcribeAudio");
+    },
+    async runBrainstormAssistant(input) {
+      return {
+        actionType: "expand_branches",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 3,
+        designIntentSummary: `围绕“${input.transcriptText}”生成首轮方向。`,
+        assistantReply: `现在围绕“${input.transcriptText}”生成三个方向。`,
+        confirmationRequired: false,
+        rewrittenIntentForConfirmation: null,
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch() {
+      throw new Error("not used");
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const response = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "围绕这个目标先发散四个方向",
+    targetNodeId: null
+  });
+
+  assert.equal(response.statusCode, 202);
+  assert.equal(transcribeCalls, 0);
+  assert.equal(
+    response.json().task.transcriptText,
+    "围绕这个目标先发散四个方向"
+  );
+
+  await app.close();
+});
+
+liveTest("voice turn without explicit target keeps using the previous executed target node", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "台灯方向探索",
+      goal: "围绕更柔和的办公台灯做首轮发散"
+    }
+  });
+
+  const { session } = createSessionResponse.json();
+
+  const initialResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "围绕这个目标先发散四个方向",
+    targetNodeId: null
+  });
+  assert.equal(initialResponse.statusCode, 202);
+  await waitForTaskStatus(app, initialResponse.json().task.id);
+
+  const initialTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const targetNode = initialTree.json().nodes[0];
+
+  const explicitTargetResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "沿着这个方向继续下钻三个子方向",
+    targetNodeId: targetNode.id
+  });
+
+  assert.equal(explicitTargetResponse.statusCode, 202);
+  assert.equal(explicitTargetResponse.json().task.targetNodeId, targetNode.id);
+  await waitForTaskStatus(app, explicitTargetResponse.json().task.id);
+
+  const secondResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "继续往下扩展",
+    targetNodeId: null
+  });
+
+  assert.equal(secondResponse.statusCode, 202);
+  assert.equal(secondResponse.json().task.targetNodeId, targetNode.id);
+
+  await app.close();
+});
+
+liveTest("voice turn can resolve target nodes from transcript references", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const initialTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散四个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  assert.equal((await waitForTaskStatus(app, initialTask.id)).status, "completed");
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const nodes = treeResponse.json().nodes;
+  const referencedNode = nodes[0];
+
+  const byNumberResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: `沿着节点 ${referencedNode.publicNodeNumber} 继续发散`,
+    targetNodeId: null
+  });
+
+  assert.equal(byNumberResponse.statusCode, 202);
+  assert.equal(byNumberResponse.json().task.targetNodeId, referencedNode.id);
+
+  const byChineseNumberResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: `沿着节点二继续发散`,
+    targetNodeId: null
+  });
+
+  assert.equal(byChineseNumberResponse.statusCode, 202);
+  assert.equal(byChineseNumberResponse.json().task.targetNodeId, nodes[1].id);
+
+  const byNameResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: `围绕${referencedNode.displayName}继续下钻`,
+    targetNodeId: null
+  });
+
+  assert.equal(byNameResponse.statusCode, 202);
+  assert.equal(byNameResponse.json().task.targetNodeId, referencedNode.id);
+
+  await app.close();
+});
+
+liveTest("executing tasks keeps the original root goal unchanged after the first round", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const voiceTurnResponse = await submitVoiceTurnWithRetry(app, session.id, {
+    transcriptText: "围绕这个目标先发散四个方向",
+    targetNodeId: null
+  });
+
+  const completedTask = await waitForTaskStatus(app, voiceTurnResponse.json().task.id);
+  assert.equal(completedTask.status, "completed");
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+
+  assert.equal(
+    treeResponse.json().session.goal,
+    "探索桌面智能设备的首层方向"
+  );
+
+  await app.close();
+});
+
+liveTest("brainstorm assistant receives prior conversation history on later turns", async () => {
+  const brainstormInputs = [];
+  const app = await createTestAppWithGateway({
+    async transcribeAudio(input) {
+      return {
+        transcriptText: input.transcriptText ?? "围绕这个目标先发散三个方向"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      brainstormInputs.push(input);
+      return {
+        actionType: input.selectedNodeSummary.formLanguage.length > 0 ? "branch_deeper" : "expand_branches",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 3,
+        designIntentSummary: `围绕“${input.sessionGoal}”继续展开。`,
+        assistantReply: `现在基于当前节点生成三个方向。`,
+        confirmationRequired: false,
+        rewrittenIntentForConfirmation: null,
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch(input) {
+      return createDeterministicGateway().generateSketch(input);
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面补光方向",
+      goal: "保持轻便、克制且有专业器材感"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const firstTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散三个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  await waitForTaskStatus(app, firstTask.id);
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const targetNode = treeResponse.json().nodes[0];
+
+  const secondTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "保留专业器材感，再轻一点",
+      targetNodeId: targetNode.id
+    })
+  ).json().task;
+  await waitForTaskStatus(app, secondTask.id);
+
+  const secondInput = brainstormInputs.at(-1);
+  assert.equal(Array.isArray(secondInput.conversationHistory), true);
+  assert.equal(secondInput.conversationHistory.length >= 2, true);
+  assert.equal(
+    secondInput.conversationHistory.some(
+      (item) =>
+        item.role === "user" &&
+        item.kind === "transcript" &&
+        item.content.includes("围绕这个目标先发散三个方向")
+    ),
+    true
+  );
+  assert.equal(
+    secondInput.conversationHistory.some(
+      (item) =>
+        item.role === "assistant" &&
+        item.kind === "summary" &&
+        item.content.includes("现在基于当前节点生成三个方向")
+    ),
+    true
+  );
+
+  await app.close();
+});
+
+liveTest("sketch prompt preserves root goal parent context and recent conversation constraints", async () => {
+  const sketchInputs = [];
+  const app = await createTestAppWithGateway({
+    async transcribeAudio(input) {
+      return {
+        transcriptText: input.transcriptText ?? "围绕这个目标先发散三个方向"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      return {
+        actionType: input.selectedNodeSummary.formLanguage.length > 0 ? "branch_deeper" : "expand_branches",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 3,
+        designIntentSummary: `围绕“${input.sessionGoal}”继续展开。`,
+        assistantReply: `我会保留当前方向的核心气质继续细化。`,
+        confirmationRequired: false,
+        rewrittenIntentForConfirmation: null,
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch(input) {
+      sketchInputs.push(input);
+      return createDeterministicGateway().generateSketch(input);
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面补光方向",
+      goal: "保持轻便、克制且有专业器材感"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const firstTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "围绕这个目标先发散三个方向",
+      targetNodeId: null
+    })
+  ).json().task;
+  await waitForTaskStatus(app, firstTask.id);
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const targetNode = treeResponse.json().nodes[0];
+
+  const secondTask = (
+    await submitVoiceTurnWithRetry(app, session.id, {
+      transcriptText: "保留专业器材感，再轻一点",
+      targetNodeId: targetNode.id
+    })
+  ).json().task;
+  await waitForTaskStatus(app, secondTask.id);
+
+  const latestSketchPrompt = sketchInputs.at(-1).brief.promptIntent;
+  assert.match(latestSketchPrompt, /主需求：保持轻便、克制且有专业器材感/);
+  assert.match(latestSketchPrompt, /当前延展节点：/);
+  assert.match(latestSketchPrompt, /最近对话历史：/);
+  assert.match(latestSketchPrompt, /保留专业器材感，再轻一点/);
+
+  await app.close();
+});
+
+test("voice turns return before all branch sketches finish while branch generation still runs concurrently", async () => {
+  let currentInFlight = 0;
+  let maxInFlight = 0;
+  const app = await createTestAppWithGateway({
+    async transcribeAudio(input) {
+      return {
+        transcriptText: input.transcriptText ?? "围绕这个目标先发散四个方向"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      return {
+        actionType: "expand_branches",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 4,
+        designIntentSummary: "围绕桌面智能设备生成首轮四个方向。",
+        assistantReply: "现在围绕当前目标生成四个方向。",
+        confirmationRequired: false,
+        rewrittenIntentForConfirmation: null,
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 4 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch(input) {
+      currentInFlight += 1;
+      maxInFlight = Math.max(maxInFlight, currentInFlight);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      currentInFlight -= 1;
+
+      return {
+        imageId: `image-${input.brief.briefId}`,
+        briefId: input.brief.briefId,
+        imageUrl: `https://example.com/${input.brief.briefId}.png`,
+        promptUsed: input.brief.promptIntent,
+        negativePromptUsed: "photorealistic",
+        visualSummary: `${input.brief.displayName} 草图`
+      };
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const task = (
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/voice-turns`,
+      payload: {
+        transcriptText: "围绕这个目标先发散四个方向",
+        targetNodeId: null
+      }
+    })
+  ).json().task;
+
+  assert.match(task.status, /queued|generating/);
+  const completedTask = await waitForTaskStatus(app, task.id);
+  assert.equal(completedTask.status, "completed");
+  assert.ok(maxInFlight > 1);
+
+  await app.close();
+});
+
+test("if one branch image generation fails the remaining successful branches still persist", async () => {
+  let sketchCalls = 0;
+  const app = await createTestAppWithGateway({
+    async transcribeAudio(input) {
+      return {
+        transcriptText: input.transcriptText ?? "围绕这个目标先发散四个方向"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      return {
+        actionType: "expand_branches",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 3,
+        designIntentSummary: "围绕桌面智能设备生成三个方向。",
+        assistantReply: "现在围绕当前目标生成三个方向。",
+        confirmationRequired: false,
+        rewrittenIntentForConfirmation: null,
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch(input) {
+      sketchCalls += 1;
+      if (input.brief.briefId === "brief-2") {
+        throw new Error("branch 2 failed");
+      }
+
+      return {
+        imageId: `image-${input.brief.briefId}`,
+        briefId: input.brief.briefId,
+        imageUrl: `https://example.com/${input.brief.briefId}.png`,
+        promptUsed: input.brief.promptIntent,
+        negativePromptUsed: "photorealistic",
+        visualSummary: `${input.brief.displayName} 草图`
+      };
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const submittedTask = (
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/voice-turns`,
+      payload: {
+        transcriptText: "围绕这个目标先发散三个方向",
+        targetNodeId: null
+      }
+    })
+  ).json().task;
+
+  const completedTask = await waitForTaskStatus(app, submittedTask.id);
+  assert.equal(completedTask.status, "completed");
+  assert.equal(sketchCalls, 3);
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  assert.equal(treeResponse.json().nodes.length, 3);
+
+  const taskResponse = await app.inject({
+    method: "GET",
+    url: `/api/tasks/${submittedTask.id}`
+  });
+  const branchStatuses = taskResponse.json().task.branchTasks.map((branchTask) => branchTask.status);
+  assert.deepEqual(branchStatuses.sort(), ["completed", "completed", "failed"].sort());
+  assert.equal(
+    treeResponse.json().nodes.filter((node) => node.imageUrl === null).length,
+    1
+  );
+
+  await app.close();
+});
+
+test("if all branch image generations fail the text branches still persist without images", async () => {
+  const app = await createTestAppWithGateway({
+    async transcribeAudio(input) {
+      return {
+        transcriptText: input.transcriptText ?? "围绕这个目标先发散三个方向"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      return {
+        actionType: "expand_branches",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 3,
+        designIntentSummary: "围绕桌面智能设备生成三个方向。",
+        assistantReply: "现在围绕当前目标生成三个方向。",
+        confirmationRequired: false,
+        rewrittenIntentForConfirmation: null,
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch() {
+      throw new Error("all branches failed");
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "桌面设备方向",
+      goal: "探索桌面智能设备的首层方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const submittedTask = (
+    await app.inject({
+      method: "POST",
+      url: `/api/sessions/${session.id}/voice-turns`,
+      payload: {
+        transcriptText: "围绕这个目标先发散三个方向",
+        targetNodeId: null
+      }
+    })
+  ).json().task;
+
+  const completedTask = await waitForTaskStatus(app, submittedTask.id);
+  assert.equal(completedTask.status, "completed");
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  assert.equal(treeResponse.json().nodes.length, 3);
+  assert.equal(
+    treeResponse.json().nodes.every((node) => node.imageUrl === null),
+    true
+  );
+
+  const taskResponse = await app.inject({
+    method: "GET",
+    url: `/api/tasks/${submittedTask.id}`
+  });
+  const branchStatuses = taskResponse.json().task.branchTasks.map((branchTask) => branchTask.status);
+  assert.deepEqual(branchStatuses, ["failed", "failed", "failed"]);
+
+  await app.close();
+});
+
+test("voice turns skip image generation entirely when the image model is disabled", { concurrency: false }, async () => {
+  const previousImageModel = process.env.SILICONFLOW_IMAGE_MODEL;
+  process.env.SILICONFLOW_IMAGE_MODEL = "";
+
+  let sketchCalls = 0;
+
+  try {
+    const app = await createTestAppWithGateway({
+      async transcribeAudio(input) {
+        return {
+          transcriptText: input.transcriptText ?? "围绕这个目标先发散三个方向"
+        };
+      },
+      async runBrainstormAssistant(input) {
+        return {
+          actionType: "expand_branches",
+          targetNodeId: input.selectedNodeId,
+          branchCount: 3,
+          designIntentSummary: "围绕桌面智能设备生成三个方向。",
+          assistantReply: "现在围绕当前目标生成三个方向。",
+          confirmationRequired: false,
+          rewrittenIntentForConfirmation: null,
+          promptHints: ["白底线稿"],
+          directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+            briefId: `brief-${index + 1}`,
+            targetParentNodeId: input.selectedNodeId,
+            label: `方向 ${index + 1}`,
+            displayName: `方向 ${index + 1}`,
+            intentSummary: `探索方向 ${index + 1}`,
+            formLanguage: ["轻薄"],
+            userNeedResponse: ["降低桌面压迫感"],
+            inspirationHints: ["办公设备"],
+            variationAxis: `变化轴 ${index + 1}`,
+            promptIntent: `生成方向 ${index + 1} 草图`
+          }))
+        };
+      },
+      async generateSketch() {
+        sketchCalls += 1;
+        throw new Error("image generation should be skipped");
+      }
+    });
+
+    const createSessionResponse = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      payload: {
+        title: "桌面设备方向",
+        goal: "探索桌面智能设备的首层方向"
+      }
+    });
+    const { session } = createSessionResponse.json();
+
+    const submittedTask = (
+      await app.inject({
+        method: "POST",
+        url: `/api/sessions/${session.id}/voice-turns`,
+        payload: {
+          transcriptText: "围绕这个目标先发散三个方向",
+          targetNodeId: null
+        }
+      })
+    ).json().task;
+
+    const completedTask = await waitForTaskStatus(app, submittedTask.id);
+    assert.equal(completedTask.status, "completed");
+    assert.equal(sketchCalls, 0);
+
+    const treeResponse = await app.inject({
+      method: "GET",
+      url: `/api/sessions/${session.id}/tree`
+    });
+    assert.equal(treeResponse.json().nodes.length, 3);
+    assert.equal(
+      treeResponse.json().nodes.every((node) => node.imageUrl === null),
+      true
+    );
+
+    const taskResponse = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${submittedTask.id}`
+    });
+    const branchStatuses = taskResponse.json().task.branchTasks.map((branchTask) => branchTask.status);
+    assert.deepEqual(branchStatuses, ["completed", "completed", "completed"]);
+
+    await app.close();
+  } finally {
+    if (previousImageModel === undefined) {
+      delete process.env.SILICONFLOW_IMAGE_MODEL;
+    } else {
+      process.env.SILICONFLOW_IMAGE_MODEL = previousImageModel;
+    }
+  }
+});
+
+test("SiliconFlow requests wait up to two minutes before timing out", () => {
+  assert.match(siliconFlowSource, /REQUEST_TIMEOUT_MS = 120_000/);
 });

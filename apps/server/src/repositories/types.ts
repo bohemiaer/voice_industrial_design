@@ -51,9 +51,13 @@ export interface CreateTreeOperationInput {
   type: TreeOperation["type"];
   targetNodeId: string;
   targetLayerVersion: number | null;
+  affectedChildGroupId: string | null;
   insertedNodeIds: string[];
+  deletedNodeIds: string[];
   supersededNodeIds: string[];
   restoredNodeIds: string[];
+  undoOfOperationId: string | null;
+  redoOfOperationId: string | null;
   payload: Record<string, unknown>;
 }
 
@@ -61,6 +65,7 @@ export interface CreateTreeNodeInput {
   sessionId: string;
   parentNodeId: string | null;
   createdFromTaskId: string | null;
+  childGroupId: string | null;
   depth: number;
   layerOrdinal: number;
   layerVersion: number;
@@ -102,7 +107,9 @@ export interface UpdateGenerationTaskStatusInput {
 export interface UpdateSessionAfterNodesInput {
   sessionId: string;
   nextPublicNodeNumber: number;
-  activeNodeId?: string | null;
+  goal?: string;
+  currentSelectedNodeId?: string | null;
+  lastExecutedTargetNodeId?: string | null;
   lastMentionedNodeId?: string | null;
 }
 
@@ -121,10 +128,16 @@ export interface ServerRepositories {
   treeNodes: {
     listBySessionId(sessionId: string): Promise<TreeNode[]>;
     createMany(input: CreateTreeNodeInput[]): Promise<TreeNode[]>;
+    markSuperseded(input: {
+      nodeIds: string[];
+      operationId: string;
+    }): Promise<void>;
+    restore(nodeIds: string[]): Promise<void>;
   };
   generationTasks: {
     create(input: CreateGenerationTaskInput): Promise<GenerationTask>;
     getById(taskId: string): Promise<GenerationTask | null>;
+    getRunningBySessionId(sessionId: string): Promise<GenerationTask | null>;
     updateStatus(
       input: UpdateGenerationTaskStatusInput
     ): Promise<GenerationTask | null>;
@@ -138,6 +151,9 @@ export interface ServerRepositories {
   };
   treeOperations: {
     create(input: CreateTreeOperationInput): Promise<TreeOperation>;
+    getById(operationId: string): Promise<TreeOperation | null>;
+    getByTaskId(taskId: string): Promise<TreeOperation | null>;
+    getLatestBySessionId(sessionId: string): Promise<TreeOperation | null>;
     getLastUndoableBySessionId(sessionId: string): Promise<TreeOperation | null>;
   };
 }

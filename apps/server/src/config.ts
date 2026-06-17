@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 export type PersistenceMode = "postgres" | "memory";
 export type AgentProvider = "mock" | "siliconflow";
@@ -8,7 +8,11 @@ export interface AppConfig {
   nodeEnv: string;
   serverPort: number;
   databaseUrl: string | null;
+  persistenceMode: PersistenceMode;
   agentProvider: AgentProvider;
+  deepSeekApiKey: string | null;
+  deepSeekBaseUrl: string | null;
+  deepSeekBrainstormModel: string | null;
   siliconFlowApiKey: string | null;
   siliconFlowBaseUrl: string | null;
   siliconFlowAsrModel: string | null;
@@ -27,9 +31,25 @@ function parseAgentProvider(value: string | undefined): AgentProvider {
   return "mock";
 }
 
+function parsePersistenceMode(
+  value: string | undefined,
+  databaseUrl: string | null,
+  nodeEnv: string
+): PersistenceMode {
+  if (value === "memory" || value === "postgres") {
+    return value;
+  }
+
+  if (databaseUrl || nodeEnv === "production") {
+    return "postgres";
+  }
+
+  return "memory";
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
-  envFilePath = resolve(process.cwd(), ".env")
+  envFilePath = findDotEnvFile(process.cwd())
 ): AppConfig {
   const dotenv = readDotEnvFile(envFilePath);
   const mergedEnv = {
@@ -37,20 +57,54 @@ export function loadConfig(
     ...env
   };
 
+  const nodeEnv = mergedEnv.NODE_ENV ?? "development";
+  const databaseUrl = mergedEnv.DATABASE_URL ?? null;
+
   return {
-    nodeEnv: mergedEnv.NODE_ENV ?? "development",
+    nodeEnv,
     serverPort: Number(mergedEnv.SERVER_PORT ?? 8787),
-    databaseUrl: mergedEnv.DATABASE_URL ?? null,
+    databaseUrl,
+    persistenceMode: parsePersistenceMode(
+      mergedEnv.PERSISTENCE_MODE,
+      databaseUrl,
+      nodeEnv
+    ),
     agentProvider: parseAgentProvider(mergedEnv.AGENT_PROVIDER),
+    deepSeekApiKey: mergedEnv.DEEPSEEK_API_KEY ?? null,
+    deepSeekBaseUrl: mergedEnv.DEEPSEEK_BASE_URL ?? null,
+    deepSeekBrainstormModel:
+      mergedEnv.DEEPSEEK_BRAINSTORM_MODEL ??
+      mergedEnv.DEEPSEEK_MODEL ??
+      null,
     siliconFlowApiKey: mergedEnv.SILICONFLOW_API_KEY ?? null,
     siliconFlowBaseUrl: mergedEnv.SILICONFLOW_BASE_URL ?? null,
     siliconFlowAsrModel: mergedEnv.SILICONFLOW_ASR_MODEL ?? null,
     siliconFlowBrainstormModel: mergedEnv.SILICONFLOW_BRAINSTORM_MODEL ?? null,
     siliconFlowImageModel: mergedEnv.SILICONFLOW_IMAGE_MODEL ?? null,
-    defaultBranchCount: Number(mergedEnv.DEFAULT_BRANCH_COUNT ?? 4),
+    defaultBranchCount: Number(mergedEnv.DEFAULT_BRANCH_COUNT ?? 3),
     maxBranchCount: Number(mergedEnv.MAX_BRANCH_COUNT ?? 4),
     sessionDomain: "industrial_design"
   };
+}
+
+function findDotEnvFile(startDir: string): string {
+  let currentDir = resolve(startDir);
+
+  while (true) {
+    const candidate = resolve(currentDir, ".env");
+
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+
+    const parentDir = dirname(currentDir);
+
+    if (parentDir === currentDir) {
+      return candidate;
+    }
+
+    currentDir = parentDir;
+  }
 }
 
 function readDotEnvFile(envFilePath: string): Record<string, string> {
