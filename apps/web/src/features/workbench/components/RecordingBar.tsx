@@ -6,9 +6,10 @@ type RecordingBarProps = {
   prompts: string[];
   recordingState: RecordingState;
   liveTranscriptText: string | null;
+  isBusy: boolean;
   onPromptClick: (prompt: string) => void;
   onTextSubmit: (text: string) => Promise<void>;
-  onCycleRecordingState: () => void;
+  onRecordingStateChange: (recordingState: RecordingState) => void;
   onRecordingComplete: (audio: Blob) => void;
 };
 
@@ -91,9 +92,10 @@ export function RecordingBar({
   prompts,
   recordingState,
   liveTranscriptText,
+  isBusy,
   onPromptClick,
   onTextSubmit,
-  onCycleRecordingState,
+  onRecordingStateChange,
   onRecordingComplete
 }: RecordingBarProps) {
   const copy = recordingCopy[recordingState];
@@ -102,6 +104,7 @@ export function RecordingBar({
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const isSpaceRecordingRef = useRef(false);
   const [textInput, setTextInput] = useState("");
+  const isRecording = recordingState === "listening";
 
   const finalizeRecording = useCallback(async (session: RecordingSession) => {
     if (recordingSessionRef.current === session) {
@@ -121,8 +124,7 @@ export function RecordingBar({
 
     try {
       if (session.chunks.length === 0) {
-        onCycleRecordingState();
-        onCycleRecordingState();
+        onRecordingStateChange("idle");
         return;
       }
 
@@ -131,11 +133,12 @@ export function RecordingBar({
         { type: "audio/wav" }
       );
 
+      onRecordingStateChange("processing");
       onRecordingComplete(audio);
     } finally {
       await session.audioContext.close();
     }
-  }, [onCycleRecordingState, onRecordingComplete]);
+  }, [onRecordingComplete, onRecordingStateChange]);
 
   const stopRecording = useCallback(async () => {
     const session = recordingSessionRef.current;
@@ -164,7 +167,7 @@ export function RecordingBar({
     }
 
     if (!("AudioContext" in window) || !navigator.mediaDevices?.getUserMedia) {
-      onCycleRecordingState();
+      onRecordingStateChange("idle");
       return;
     }
 
@@ -202,11 +205,11 @@ export function RecordingBar({
         stream
       };
 
-      onCycleRecordingState();
+      onRecordingStateChange("listening");
     } catch {
-      onCycleRecordingState();
+      onRecordingStateChange("idle");
     }
-  }, [onCycleRecordingState]);
+  }, [onRecordingStateChange]);
 
   const handleMicClick = async () => {
     if (recordingSessionRef.current) {
@@ -253,7 +256,12 @@ export function RecordingBar({
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === "Space" && !event.repeat && !isEditableTarget(event.target)) {
+      if (
+        event.code === "Space" &&
+        !event.repeat &&
+        !isEditableTarget(event.target) &&
+        !isEditableTarget(document.activeElement)
+      ) {
         event.preventDefault();
 
         if (!isSpaceRecordingRef.current) {
@@ -271,12 +279,23 @@ export function RecordingBar({
       }
     };
 
+    const handleWindowBlur = () => {
+      if (!isSpaceRecordingRef.current && !recordingSessionRef.current) {
+        return;
+      }
+
+      isSpaceRecordingRef.current = false;
+      void stopRecording();
+    };
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleWindowBlur);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleWindowBlur);
 
       if (recordingSessionRef.current) {
         void stopRecording();
@@ -288,13 +307,19 @@ export function RecordingBar({
     <footer className="sidebar-input" data-testid="voice-dock">
       <div className="prompt-suggestions">
         {prompts.map((prompt) => (
-          <button key={prompt} type="button" className="prompt-chip" onClick={() => onPromptClick(prompt)}>
+          <button
+            key={prompt}
+            type="button"
+            className="prompt-chip"
+            disabled={isBusy}
+            onClick={() => onPromptClick(prompt)}
+          >
             {prompt}
           </button>
         ))}
       </div>
 
-      <div className="input-panel">
+      <div className={["input-panel", isRecording ? "input-panel--recording" : ""].join(" ")}>
         <div className="input-panel__field">
           <p>{copy.title}</p>
           <textarea
@@ -303,26 +328,34 @@ export function RecordingBar({
             value={textInput}
             placeholder={inputPlaceholder}
             rows={1}
+            disabled={isBusy}
             onChange={(event) => setTextInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                void handleTextSubmit();
+                if (!isBusy) {
+                  void handleTextSubmit();
+                }
               }
             }}
           />
         </div>
 
         <div className="input-panel__controls">
-          <button className="ghost-button" type="button" aria-label="上传附件">
+          <button className="ghost-button" type="button" aria-label="上传附件" disabled={isBusy}>
             +
           </button>
 
           <div className="input-panel__actions">
             <button
-              className={["mic-button", recordingState !== "idle" ? "is-live" : ""].join(" ")}
+              className={[
+                "mic-button",
+                recordingState !== "idle" ? "is-live" : "",
+                isRecording ? "mic-button--recording" : ""
+              ].join(" ")}
               type="button"
               aria-label="语音输入"
+              disabled={isBusy && !isRecording}
               onClick={() => {
                 void handleMicClick();
               }}
@@ -334,6 +367,7 @@ export function RecordingBar({
               className="submit-button"
               type="button"
               aria-label="发送"
+              disabled={isBusy || textInput.trim().length === 0}
               onClick={() => {
                 void handleTextSubmit();
               }}

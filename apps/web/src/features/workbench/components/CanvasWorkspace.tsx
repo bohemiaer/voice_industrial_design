@@ -1,9 +1,11 @@
-import { memo, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Position,
   ReactFlow,
   useReactFlow,
+  getNodesBounds,
+  type Viewport,
   type Edge,
   type EdgeTypes,
   type NodeTypes
@@ -12,7 +14,7 @@ import type { TreeNode } from "@voice-industrial-design/shared";
 
 import { useWorkbenchStore } from "../store";
 import type { NodePalette } from "../types";
-import { createNodePosition, createNodeUiMeta } from "../uiMeta";
+import { createNodeUiMeta, createSymmetricTreeLayout } from "../uiMeta";
 import {
   BrainstormNodeCard,
   type BrainstormFlowNode
@@ -29,9 +31,8 @@ const connectorPalette: Record<NodePalette, string> = {
 };
 
 const toolbarItems = [
-  { label: "指针", icon: "selectionCursor", active: true },
-  { label: "拖拽", icon: "hand" },
-  { label: "框选", icon: "frame" }
+  { label: "全局显示", icon: "selectionCursor" },
+  { label: "拖拽", icon: "hand" }
 ];
 
 const zoomItems = [
@@ -51,6 +52,81 @@ const nodeTypes = {
 const edgeTypes = {
   workbenchBezier: WorkbenchBezierEdge
 } satisfies EdgeTypes;
+
+const DEFAULT_SESSION_TITLE = "AI 语音工业设计脑暴";
+
+function extractProductName(text: string): string | null {
+  const normalized = text.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const patterns = [
+    /围绕(.+?)(生成|做|展开|延展|发散|设计|探索)/,
+    /探索(.+?)(的|方向|方案|概念)/,
+    /设计(?:一款|一个|一台|一种)?(.+?)(，|。|,|\.|并|让|要|用于)/
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+function resolveRootNodeDisplayName(session: {
+  title: string;
+  goal: string;
+}, rootIntentSummary: string): string {
+  if (
+    session.title !== DEFAULT_SESSION_TITLE &&
+    session.title.trim().length > 0
+  ) {
+    return session.title;
+  }
+
+  return extractProductName(rootIntentSummary) ?? truncateRootText(rootIntentSummary);
+}
+
+function resolveRootNodeLabel(
+  session: { title: string; goal: string },
+  rootIntentSummary: string
+): string {
+  return resolveRootNodeDisplayName(session, rootIntentSummary);
+}
+
+function resolveRootNodeIntentSummary(session: {
+  goal: string;
+}, firstUserTranscript: string | null): string {
+  return firstUserTranscript?.trim() || session.goal;
+}
+
+function findFirstUserTranscript(messages: Array<{
+  role: string;
+  kind: string;
+  content: string;
+}>): string | null {
+  const firstUserTranscript = messages.find(
+    (message) => message.role === "user" && message.kind === "transcript"
+  );
+
+  return firstUserTranscript?.content ?? null;
+}
+
+function truncateRootText(text: string): string {
+  const normalized = text.trim();
+
+  if (normalized.length <= 16) {
+    return normalized || "产品需求";
+  }
+
+  return `${normalized.slice(0, 16)}...`;
+}
 
 function ToolbarGlyph({ icon }: { icon: string }) {
   if (icon === "zoom-label") {
@@ -131,21 +207,51 @@ export function CanvasWorkspace() {
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
   const selectNode = useWorkbenchStore((state) => state.selectNode);
-  const { fitView } = useReactFlow();
+  const requestUndo = useWorkbenchStore((state) => state.requestUndo);
+  const requestRedo = useWorkbenchStore((state) => state.requestRedo);
+  const { fitBounds, fitView, getViewport, setViewport, zoomIn, zoomOut } = useReactFlow();
+  const viewportSnapshotRef = useRef<Viewport | null>(null);
+  const [isGlobalPreview, setIsGlobalPreview] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const historyDisabled =
+    uiState.isThinking ||
+    uiState.apiStatus === "loading" ||
+    uiState.recordingState === "processing";
+  const hasConfirmedRootIntent =
+    serverState.nodes.length > 0 || serverState.session.nextPublicNodeNumber > 1;
+  const firstUserTranscript = useMemo(
+    () => findFirstUserTranscript(serverState.messages),
+    [serverState.messages]
+  );
+  const rootIntentSummary = useMemo(
+    () => resolveRootNodeIntentSummary(serverState.session, firstUserTranscript),
+    [firstUserTranscript, serverState.session]
+  );
 
   const rootNode = useMemo<TreeNode>(
     () => ({
       id: serverState.session.id,
       sessionId: serverState.session.id,
       parentNodeId: null,
+      childGroupId: null,
       depth: 0,
-      displayName: "用户需求",
-      label: "用户需求",
+      displayName: resolveRootNodeDisplayName(
+        serverState.session,
+        rootIntentSummary
+      ),
+      label: resolveRootNodeLabel(serverState.session, rootIntentSummary),
       publicNodeNumber: 1,
       layerOrdinal: 1,
       layerVersion: 1,
-      voiceAliases: ["root", "用户需求"],
-      intentSummary: serverState.session.goal,
+      voiceAliases: [
+        "root",
+        "用户需求",
+        resolveRootNodeDisplayName(serverState.session, rootIntentSummary)
+      ],
+      intentSummary: resolveRootNodeIntentSummary(
+        serverState.session,
+        firstUserTranscript
+      ),
       formLanguage: [],
       userNeedResponse: [],
       inspirationHints: [],
@@ -154,7 +260,7 @@ export function CanvasWorkspace() {
       createdAt: serverState.session.createdAt,
       updatedAt: serverState.session.updatedAt
     }),
-    [serverState.session]
+    [firstUserTranscript, rootIntentSummary, serverState.session]
   );
 
   const visibleTreeNodes = useMemo<TreeNode[]>(() => {
@@ -185,53 +291,36 @@ export function CanvasWorkspace() {
     }, {});
   }, [visibleTreeNodes]);
 
-  const visibleOrdinalByNodeId = useMemo(() => {
-    const depthCounts = new Map<number, number>();
-    const ordinals = new Map<string, number>();
-
-    [...visibleTreeNodes]
-      .sort((left, right) => {
-        if (left.depth !== right.depth) {
-          return left.depth - right.depth;
-        }
-
-        return left.layerOrdinal - right.layerOrdinal;
-      })
-      .forEach((node) => {
-        const nextOrdinal = (depthCounts.get(node.depth) ?? 0) + 1;
-        depthCounts.set(node.depth, nextOrdinal);
-        ordinals.set(node.id, nextOrdinal);
-      });
-
-    return ordinals;
-  }, [visibleTreeNodes]);
-
-  const visibleCountByDepth = useMemo(() => {
-    return visibleTreeNodes.reduce<Map<number, number>>((counts, node) => {
-      counts.set(node.depth, (counts.get(node.depth) ?? 0) + 1);
-      return counts;
-    }, new Map<number, number>());
-  }, [visibleTreeNodes]);
+  const layoutPositions = useMemo(
+    () => createSymmetricTreeLayout(visibleTreeNodes),
+    [visibleTreeNodes]
+  );
 
   const nodes = useMemo<BrainstormFlowNode[]>(() => {
     return visibleTreeNodes.map((node, index) => {
-      const meta = createNodeUiMeta(node, index);
-      const visibleOrdinal = visibleOrdinalByNodeId.get(node.id) ?? node.layerOrdinal;
-      const visibleCount = visibleCountByDepth.get(node.depth) ?? 1;
+      const layoutPosition = layoutPositions.get(node.id) ?? {
+        x: 80,
+        y: 70 + node.depth * 440
+      };
+      const meta = {
+        ...createNodeUiMeta(node, index),
+        position: layoutPosition
+      };
 
       return {
         id: node.id,
         type: "brainstorm",
-        position: createNodePosition(node.depth, visibleOrdinal, visibleCount),
+        position: layoutPosition,
         sourcePosition: Position.Bottom,
         targetPosition: Position.Top,
-        selected: uiState.selectedNodeId === node.id,
+        selected: uiState.currentNodeId === node.id,
         data: {
           node,
           meta,
           hasParent: Boolean(node.parentNodeId),
           hasChildren: (childMap[node.id] ?? []).length > 0,
-          isCurrentTarget: uiState.currentTargetNodeId === node.id,
+          isCurrentTarget: uiState.currentNodeId === node.id,
+          showRootPromptHints: node.id === serverState.session.id && !hasConfirmedRootIntent,
           onSelect: selectNode
         }
       };
@@ -239,22 +328,67 @@ export function CanvasWorkspace() {
   }, [
     childMap,
     selectNode,
-    uiState.currentTargetNodeId,
-    uiState.selectedNodeId,
-    visibleCountByDepth,
-    visibleOrdinalByNodeId,
+    serverState.session.id,
+    uiState.currentNodeId,
+    hasConfirmedRootIntent,
+    layoutPositions,
     visibleTreeNodes
   ]);
 
   const flowNodeIds = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
 
+  const focusLatestPreview = useCallback(() => {
+    const latestGeneratedNodes = nodes.filter((node) =>
+      uiState.latestGeneratedNodeIds.includes(node.id)
+    );
+
+    if (latestGeneratedNodes.length === 0) {
+      return false;
+    }
+
+    const bounds = getNodesBounds(latestGeneratedNodes);
+    const viewportAspectRatio =
+      typeof window === "undefined"
+        ? 16 / 9
+        : window.innerWidth / Math.max(window.innerHeight, 1);
+    const expandedWidth = Math.max(bounds.width * 2, 720);
+    const expandedHeight = Math.max(
+      expandedWidth / Math.max(viewportAspectRatio, 1),
+      bounds.height * 1.12,
+      320
+    );
+
+    void fitBounds(
+      {
+        x: bounds.x - (expandedWidth - bounds.width) / 2,
+        y: bounds.y - (expandedHeight - bounds.height) / 2,
+        width: expandedWidth,
+        height: expandedHeight
+      },
+      {
+        padding: 0.08,
+        duration: 420
+      }
+    );
+
+    return true;
+  }, [fitBounds, nodes, uiState.latestGeneratedNodeIds]);
+
   useEffect(() => {
+    if (isGlobalPreview) {
+      return;
+    }
+
     const fitViewTimer = window.setTimeout(() => {
+      if (focusLatestPreview()) {
+        return;
+      }
+
       fitView({ padding: 0.2, minZoom: 0.48, maxZoom: 0.88, duration: 420 });
     }, 80);
 
     return () => window.clearTimeout(fitViewTimer);
-  }, [fitView, flowNodeIds]);
+  }, [fitView, flowNodeIds, focusLatestPreview, isGlobalPreview]);
 
   const edges = useMemo<Edge[]>(() => {
     return visibleTreeNodes
@@ -272,13 +406,88 @@ export function CanvasWorkspace() {
           type: "workbenchBezier",
           style: {
             stroke: connectorPalette[meta.palette],
-            strokeWidth: uiState.currentTargetNodeId === node.id ? 3 : 2.4
+            strokeWidth: uiState.currentNodeId === node.id ? 3 : 2.4
           },
           selectable: false,
           animated: node.status === "generating"
         };
       });
-  }, [uiState.currentTargetNodeId, visibleTreeNodes]);
+  }, [uiState.currentNodeId, visibleTreeNodes]);
+
+  const handleToggleGlobalPreview = useCallback(() => {
+    if (isGlobalPreview) {
+      if (viewportSnapshotRef.current) {
+        void setViewport(viewportSnapshotRef.current, { duration: 360 });
+      }
+      setIsGlobalPreview(false);
+      return;
+    }
+
+    viewportSnapshotRef.current = getViewport();
+    setIsGlobalPreview(true);
+    void fitView({ padding: 0.16, minZoom: 0.34, maxZoom: 0.82, duration: 420 });
+  }, [fitView, getViewport, isGlobalPreview, setViewport]);
+
+  const handleExportImages = useCallback(async () => {
+    const exportableNodes = serverState.nodes.filter((node) => node.imageUrl);
+
+    if (exportableNodes.length === 0 || isExporting) {
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      const failures: string[] = [];
+
+      await Promise.all(
+        exportableNodes.map(async (node) => {
+          try {
+            const response = await fetch(node.imageUrl as string);
+
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const extensionMatch = new URL(node.imageUrl as string).pathname.match(/\.(png|jpg|jpeg|webp)$/i);
+            const extension =
+              extensionMatch?.[1]?.toLowerCase() === "jpeg"
+                ? "jpg"
+                : (extensionMatch?.[1]?.toLowerCase() ?? "png");
+
+            zip.file(
+              `node-${node.publicNodeNumber}-${node.displayName.replace(/[\\/:*?"<>|]/g, "-")}.${extension}`,
+              blob
+            );
+          } catch (error) {
+            failures.push(
+              `NODE ${node.publicNodeNumber} ${node.displayName}: ${
+                error instanceof Error ? error.message : "下载失败"
+              }`
+            );
+          }
+        })
+      );
+
+      if (failures.length > 0) {
+        zip.file("export-errors.txt", failures.join("\n"));
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const downloadUrl = URL.createObjectURL(zipBlob);
+      const link = document.createElement("a");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      link.href = downloadUrl;
+      link.download = `voice-painting-images-${timestamp}.zip`;
+      link.click();
+      URL.revokeObjectURL(downloadUrl);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isExporting, serverState.nodes]);
 
   return (
     <section className="workspace-pane" data-testid="canvas-panel">
@@ -287,10 +496,20 @@ export function CanvasWorkspace() {
           {toolbarItems.map((item) => (
             <button
               key={item.label}
-              className={["toolbar-icon", item.active ? "is-active" : ""].join(" ")}
+              className={[
+                "toolbar-icon",
+                item.icon === "hand" || (item.icon === "selectionCursor" && isGlobalPreview)
+                  ? "is-active"
+                  : ""
+              ].join(" ")}
               type="button"
               title={item.label}
               aria-label={item.label}
+              onClick={() => {
+                if (item.icon === "selectionCursor") {
+                  handleToggleGlobalPreview();
+                }
+              }}
             >
               <span className="toolbar-icon__glyph" aria-hidden="true">
                 <ToolbarGlyph icon={item.icon} />
@@ -307,6 +526,28 @@ export function CanvasWorkspace() {
               type="button"
               title={item.label}
               aria-label={item.label}
+              onClick={() => {
+                if (item.icon === "minus") {
+                  void zoomOut({ duration: 240 });
+                  return;
+                }
+
+                if (item.icon === "plus") {
+                  void zoomIn({ duration: 240 });
+                  return;
+                }
+
+                if (isGlobalPreview) {
+                  void fitView({ padding: 0.16, minZoom: 0.34, maxZoom: 0.82, duration: 320 });
+                  return;
+                }
+
+                if (focusLatestPreview()) {
+                  return;
+                }
+
+                void fitView({ padding: 0.2, minZoom: 0.48, maxZoom: 0.88, duration: 320 });
+              }}
             >
               <span className="toolbar-icon__glyph" aria-hidden="true">
                 <ToolbarGlyph icon={item.icon} />
@@ -323,6 +564,21 @@ export function CanvasWorkspace() {
               type="button"
               title={item.label}
               aria-label={item.label}
+              disabled={
+                item.icon === "redo"
+                  ? historyDisabled || !uiState.canRedo
+                  : historyDisabled
+              }
+              onClick={() => {
+                if (item.icon === "redo") {
+                  void requestRedo();
+                  return;
+                }
+
+                if (item.icon === "undo") {
+                  void requestUndo();
+                }
+              }}
             >
               <span className="toolbar-icon__glyph" aria-hidden="true">
                 <ToolbarGlyph icon={item.icon} />
@@ -332,7 +588,15 @@ export function CanvasWorkspace() {
         </div>
 
         <div className="toolbar-export">
-          <button type="button" aria-label="导出" title="导出">
+          <button
+            type="button"
+            aria-label="导出"
+            title="导出"
+            disabled={isExporting || serverState.nodes.every((node) => !node.imageUrl)}
+            onClick={() => {
+              void handleExportImages();
+            }}
+          >
             <span className="toolbar-icon__glyph" aria-hidden="true">
               <ToolbarGlyph icon="export" />
             </span>
@@ -352,6 +616,7 @@ export function CanvasWorkspace() {
             minZoom={0.45}
             maxZoom={1.4}
             nodesDraggable={false}
+            panOnDrag
             nodesConnectable={false}
             elementsSelectable={false}
             zoomOnDoubleClick={false}

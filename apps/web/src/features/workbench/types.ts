@@ -17,24 +17,6 @@ export type MessageDecoration = {
   defaultOpen?: boolean;
 };
 
-export type PendingAction =
-  | {
-      kind: "task_confirmation";
-      taskId: string;
-      title: string;
-      description: string;
-      confirmLabel: string;
-      cancelLabel: string;
-    }
-  | {
-      kind: "undo";
-      operationId: string;
-      title: string;
-      description: string;
-      confirmLabel: string;
-      cancelLabel: string;
-    };
-
 export type NodeUiMeta = {
   palette: NodePalette;
   prompts: string[];
@@ -53,15 +35,15 @@ export type WorkbenchServerState = {
 };
 
 export type WorkbenchUiState = {
-  selectedNodeId: string;
+  currentNodeId: string;
   apiSessionId: string | null;
   apiStatus: "idle" | "loading" | "ready" | "error";
   apiError: string | null;
   expandedSystemMessageIds: string[];
   recordingState: RecordingState;
   liveTranscriptText: string | null;
-  currentTargetNodeId: string | null;
-  pendingAction: PendingAction | null;
+  latestGeneratedNodeIds: string[];
   lastActionSummary: string | null;
   isThinking: boolean;
+  canRedo: boolean;
 };

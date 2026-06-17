@@ -147,8 +147,9 @@ button {
 
 .toolbar {
   position: absolute;
-  top: 26px;
+  top: 50%;
   left: 18px;
+  transform: translateY(-50%);
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -723,8 +724,7 @@ button {
 }
 
 .target-banner,
-.intent-card,
-.confirmation-card {
+.intent-card {
   margin: 0 0 12px;
   padding: 16px 18px;
   border: 1px solid rgba(232, 236, 241, 0.95);
@@ -734,8 +734,7 @@ button {
 }
 
 .target-banner__label,
-.intent-card__label,
-.confirmation-card__label {
+.intent-card__label {
   display: inline-block;
   margin-bottom: 8px;
   color: #7a8390;
@@ -746,16 +745,14 @@ button {
 }
 
 .target-banner h3,
-.intent-card h3,
-.confirmation-card h3 {
+.intent-card h3 {
   margin: 0 0 8px;
   font-size: 15px;
   line-height: 1.4;
 }
 
 .target-banner p,
-.intent-card p,
-.confirmation-card p {
+.intent-card p {
   margin: 0;
   color: var(--text-subtle);
   font-size: 13px;
@@ -780,11 +777,6 @@ button {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
-}
-
-.intent-card__status.is-awaiting_confirmation {
-  background: rgba(255, 247, 228, 0.96);
-  color: #b87414;
 }
 
 .intent-card__status.is-generating {
@@ -817,36 +809,6 @@ button {
   border-left: 3px solid #d87662;
   padding-left: 10px;
   color: #8c463c !important;
-}
-
-.confirmation-card {
-  border-color: rgba(255, 203, 127, 0.42);
-  background: rgba(255, 251, 245, 0.98);
-}
-
-.confirmation-card__actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.confirmation-card__confirm,
-.confirmation-card__cancel {
-  border: 0;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.confirmation-card__confirm {
-  background: #181c22;
-  color: #fff;
-}
-
-.confirmation-card__cancel {
-  background: rgba(237, 241, 245, 0.96);
-  color: #5d6470;
 }
 
 .sidebar-stream {
@@ -988,10 +950,37 @@ button {
 }
 
 .input-panel {
+  position: relative;
   border: 1px solid rgba(226, 230, 236, 0.94);
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 18px 42px rgba(29, 35, 43, 0.06);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.input-panel::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border-radius: 34px;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle, rgba(255, 92, 106, 0.34) 0%, rgba(255, 92, 106, 0.18) 40%, rgba(255, 92, 106, 0) 72%);
+  filter: blur(8px);
+  transition: opacity 180ms ease;
+}
+
+.input-panel--recording {
+  border-color: rgba(238, 96, 109, 0.56);
+  box-shadow:
+    0 22px 52px rgba(29, 35, 43, 0.1),
+    0 0 0 1px rgba(247, 99, 113, 0.18);
+}
+
+.input-panel--recording::before {
+  opacity: 1;
+  animation: recordingHalo 1.8s ease-in-out infinite;
 }
 
 .input-panel__field {
@@ -1063,6 +1052,7 @@ button {
   width: 34px;
   height: 34px;
   background: rgba(255, 239, 241, 0.96);
+  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
 .mic-dot {
@@ -1079,6 +1069,23 @@ button {
   border: 1px solid rgba(244, 90, 111, 0.24);
   border-radius: 999px;
   animation: pulse 2s ease-out infinite;
+}
+
+.mic-button--recording {
+  background: rgba(255, 230, 234, 0.98);
+  box-shadow:
+    0 0 0 6px rgba(247, 99, 113, 0.12),
+    0 0 22px rgba(247, 99, 113, 0.3);
+  transform: scale(1.02);
+}
+
+.mic-button--recording .mic-dot {
+  background: #f04a62;
+}
+
+.mic-button--recording .mic-wave {
+  border-color: rgba(240, 74, 98, 0.42);
+  animation-duration: 1.4s;
 }
 
 .submit-button {
@@ -1108,6 +1115,23 @@ button {
 
   100% {
     opacity: 0;
+  }
+}
+
+@keyframes recordingHalo {
+  0% {
+    transform: scale(0.98);
+    opacity: 0.42;
+  }
+
+  50% {
+    transform: scale(1.02);
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: scale(0.98);
+    opacity: 0.42;
   }
 }
 
@@ -1149,8 +1173,9 @@ button {
 
 @media (max-width: 760px) {
   .toolbar {
-    top: 18px;
+    top: 50%;
     left: 18px;
+    transform: translateY(-50%);
     gap: 8px;
     padding: 10px 8px;
   }
@@ -1192,7 +1217,4 @@ button {
     padding: 12px 16px 18px;
   }
 
-  .confirmation-card__actions {
-    flex-direction: column;
-  }
 }

@@ -17,6 +17,7 @@ export type BrainstormNodeData = {
   hasParent: boolean;
   hasChildren: boolean;
   isCurrentTarget: boolean;
+  showRootPromptHints: boolean;
   onSelect: (nodeId: string) => void;
 };
 
@@ -26,7 +27,15 @@ export function BrainstormNodeCard({
   data,
   selected
 }: NodeProps<BrainstormFlowNode>) {
-  const { node, meta, hasParent, hasChildren, isCurrentTarget, onSelect } = data;
+  const {
+    node,
+    meta,
+    hasParent,
+    hasChildren,
+    isCurrentTarget,
+    showRootPromptHints,
+    onSelect
+  } = data;
   const isRoot = !hasParent;
   const nodeTag = hasParent ? `NODE ${node.publicNodeNumber}` : "ROOT";
   const hasRenderedImage = Boolean(node.imageUrl) && node.status !== "generating";
@@ -100,13 +109,15 @@ export function BrainstormNodeCard({
             </div>
           ) : (
             <div className="node-card__requirement">
-              <span>从语音开始描述</span>
+              <span>{showRootPromptHints ? "从语音开始描述" : "已确认设计需求"}</span>
               <p className="node-card__requirement-text">{node.intentSummary}</p>
-              <div className="node-card__empty-prompts">
-                {rootPromptHints.map((hint) => (
-                  <em key={hint}>{hint}</em>
-                ))}
-              </div>
+              {showRootPromptHints ? (
+                <div className="node-card__empty-prompts">
+                  {rootPromptHints.map((hint) => (
+                    <em key={hint}>{hint}</em>
+                  ))}
+                </div>
+              ) : null}
             </div>
           )}
         </div>

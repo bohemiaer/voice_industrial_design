@@ -82,7 +82,7 @@ export async function registerSessionRoutes(
     }
 
     const input = await parseVoiceTurnRequest(request);
-    const task = await orchestrator.processVoiceTurn({
+    const result = await orchestrator.processVoiceTurn({
       sessionId,
       transcriptText: input.transcriptText,
       audio: input.audio,
@@ -91,53 +91,41 @@ export async function registerSessionRoutes(
     });
 
     return reply.status(202).send({
-      task
+      task: result.task,
+      operation: result.operation
     });
   });
 
   app.post("/api/sessions/:sessionId/undo", async (request) => {
     const { sessionId } = request.params as { sessionId: string };
-    const session = await services.repositories.sessions.getById(sessionId);
-
-    if (!session) {
-      throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
-    }
-
-    const operation =
-      await services.repositories.treeOperations.getLastUndoableBySessionId(
-        sessionId
-      );
-
-    if (!operation) {
-      throw new ApiError(
-        409,
-        "UNDO_NOT_AVAILABLE",
-        "No confirmed tree operation is available to undo"
-      );
-    }
-
-    const undoOperation = await services.repositories.treeOperations.create({
+    const {
+      operationId,
+      taskId
+    } = (request.body as { operationId?: string | null; taskId?: string | null }) ?? {
+      operationId: null,
+      taskId: null
+    };
+    const taskOperation =
+      taskId != null
+        ? await services.repositories.treeOperations.getByTaskId(taskId)
+        : null;
+    const undoOperation = await orchestrator.undoSession({
       sessionId,
-      taskId: null,
-      type: "undo",
-      targetNodeId: operation.targetNodeId,
-      targetLayerVersion: operation.targetLayerVersion,
-      insertedNodeIds: [],
-      supersededNodeIds: operation.insertedNodeIds,
-      restoredNodeIds: operation.supersededNodeIds,
-      payload: {
-        undoTargetOperationId: operation.id
-      }
+      operationId: operationId ?? null,
+      taskId: taskId ?? null
     });
-
-    await services.repositories.treeNodes.markSuperseded({
-      nodeIds: operation.insertedNodeIds,
-      operationId: undoOperation.id
-    });
-    await services.repositories.treeNodes.restore(operation.supersededNodeIds);
 
     return {
       operation: undoOperation
+    };
+  });
+
+  app.post("/api/sessions/:sessionId/redo", async (request) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const operation = await orchestrator.redoSession({ sessionId });
+
+    return {
+      operation
     };
   });
 }

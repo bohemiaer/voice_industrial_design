@@ -7,21 +7,16 @@ import type {
 import { create } from "zustand";
 
 import {
-  cancelGenerationTask,
-  confirmGenerationTask,
   createWorkbenchSession,
-  isApiConnectionInterruptedError,
+  getGenerationTask,
   isSessionNotFoundError,
-  loadWorkbenchMessages,
   loadWorkbenchSessionState,
-  loadWorkbenchTree,
+  requestSessionRedo,
   requestSessionUndo,
-  submitVoiceRecording,
   submitVoiceTurn as submitVoiceTurnToApi,
   transcribeVoiceRecording
 } from "./api";
 import type {
-  PendingAction,
   RecordingState,
   WorkbenchServerState,
   WorkbenchUiState
@@ -39,9 +34,8 @@ type WorkbenchStore = {
   transcribeAudioTurn: (audio: Blob) => Promise<{ transcriptText: string } | null>;
   submitVoiceTurn: (transcriptText: string, recovered?: boolean) => Promise<void>;
   submitAudioTurn: (audio: Blob, recovered?: boolean) => Promise<void>;
-  confirmPendingAction: (confirmationText?: string) => Promise<void>;
-  cancelPendingAction: () => Promise<void>;
   requestUndo: () => Promise<void>;
+  requestRedo: () => Promise<void>;
 };
 
 const initialTimestamp = "2026-06-14T00:00:00.000+08:00";
@@ -51,7 +45,8 @@ const initialServerState: WorkbenchServerState = {
     title: "AI 语音工业设计脑暴",
     goal: "围绕桌面智能设备生成早期工业设计方向",
     productDomain: "industrial_design",
-    activeNodeId: null,
+    currentSelectedNodeId: null,
+    lastExecutedTargetNodeId: null,
     pendingNodeId: null,
     lastMentionedNodeId: null,
     nextPublicNodeNumber: 1,
@@ -67,42 +62,19 @@ const initialServerState: WorkbenchServerState = {
 const initialState = {
   serverState: initialServerState,
   uiState: {
-    selectedNodeId: "",
+    currentNodeId: "",
     apiSessionId: null,
     apiStatus: "idle" as const,
     apiError: null,
     expandedSystemMessageIds: [],
     recordingState: "idle" as const,
     liveTranscriptText: null,
-    currentTargetNodeId: null,
-    pendingAction: null,
+    latestGeneratedNodeIds: [],
     lastActionSummary: "正在连接真实 API。",
-    isThinking: false
+    isThinking: false,
+    canRedo: false
   }
 };
-
-function derivePendingAction(task: GenerationTask | null): PendingAction | null {
-  if (!task || task.status !== "awaiting_confirmation") {
-    return null;
-  }
-
-  const actionTitle: Record<GenerationTask["actionType"], string> = {
-    expand_branches: "确认生成新方向",
-    refresh_layer: "确认刷新当前层",
-    branch_deeper: "确认继续下钻"
-  };
-
-  return {
-    kind: "task_confirmation",
-    taskId: task.id,
-    title: actionTitle[task.actionType],
-    description:
-      task.rewrittenIntentForConfirmation ??
-      `确认后将执行 ${task.actionType}，生成 ${task.branchCount} 个方向。`,
-    confirmLabel: "确认执行",
-    cancelLabel: "取消"
-  };
-}
 
 function mergeTask(
   tasks: GenerationTask[],
@@ -115,6 +87,41 @@ function mergeTask(
   }
 
   return tasks.map((candidate) => (candidate.id === task.id ? task : candidate));
+}
+
+function findLastUndoableTreeOperation(
+  operations: TreeOperation[]
+): TreeOperation | null {
+  const latestOperation = operations.at(-1);
+
+  if (
+    !latestOperation ||
+    latestOperation.type === "undo" ||
+    latestOperation.type === "redo"
+  ) {
+    return null;
+  }
+
+  return latestOperation;
+}
+
+function isUndoTranscript(transcriptText: string): boolean {
+  const normalized = transcriptText.replace(/\s+/g, "");
+  const undoCommands = [
+    "撤回上一步",
+    "撤销上一步",
+    "撤回上一轮",
+    "撤销上一轮",
+    "撤回",
+    "撤销"
+  ];
+
+  return undoCommands.includes(normalized);
+}
+
+function canRedoTreeOperation(operations: TreeOperation[]): boolean {
+  const latestOperation = operations.at(-1);
+  return Boolean(latestOperation?.type === "undo" && latestOperation.undoOfOperationId);
 }
 
 function createOptimisticUserMessage(
@@ -132,75 +139,160 @@ function createOptimisticUserMessage(
   };
 }
 
-function createThinkingMessage(sessionId: string): Message {
-  return {
-    id: `optimistic-thinking-${Date.now()}`,
-    sessionId,
-    taskId: null,
-    role: "assistant",
-    kind: "status",
-    content: "思考中...",
-    createdAt: new Date().toISOString()
-  };
+function resolveTaskResolvedNodeId(input: {
+  serverState: WorkbenchServerState;
+  task: GenerationTask | null;
+}): string | null {
+  const taskResolvedNodeId = input.task?.targetNodeId;
+  const visibleNodeIds = new Set([
+    input.serverState.session.id,
+    ...input.serverState.nodes.map((node) => node.id)
+  ]);
+
+  if (taskResolvedNodeId && visibleNodeIds.has(taskResolvedNodeId)) {
+    return taskResolvedNodeId;
+  }
+
+  return null;
 }
 
-function isConfirmationText(transcriptText: string): boolean {
-  return transcriptText.replace(/[。！!？?,，、\s"'“”‘’]+/g, "") === "确认";
-}
+function resolveCurrentNodeId(input: {
+  serverState: WorkbenchServerState;
+  previous: WorkbenchUiState;
+  task: GenerationTask | null;
+}): string {
+  const previousCurrentNodeId = input.previous.currentNodeId;
+  const taskResolvedNodeId = resolveTaskResolvedNodeId({
+    serverState: input.serverState,
+    task: input.task
+  });
 
-function resolveSelectedNodeId(
-  serverState: WorkbenchServerState,
-  previousSelectedNodeId: string | null
-): string {
-  if (previousSelectedNodeId === serverState.session.id) {
-    return serverState.session.id;
+  if (taskResolvedNodeId) {
+    return taskResolvedNodeId;
+  }
+
+  if (previousCurrentNodeId === input.serverState.session.id) {
+    return input.serverState.session.id;
   }
 
   if (
-    previousSelectedNodeId &&
-    serverState.nodes.some((node) => node.id === previousSelectedNodeId)
+    previousCurrentNodeId &&
+    input.serverState.nodes.some((node) => node.id === previousCurrentNodeId)
   ) {
-    return previousSelectedNodeId;
+    return previousCurrentNodeId;
   }
 
   return (
-    serverState.session.activeNodeId ??
-    serverState.nodes[0]?.id ??
-    serverState.session.id
+    input.serverState.session.currentSelectedNodeId ??
+    input.serverState.nodes[0]?.id ??
+    input.serverState.session.id
   );
+}
+
+function resolveActionSummary(input: {
+  task: GenerationTask | null;
+  operation: TreeOperation | null;
+  previousSummary: string | null;
+}): string | null {
+  if (input.task?.status === "completed") {
+    return input.task.actionType === "refresh"
+      ? "已完成当前节点最近一组子节点的刷新。"
+      : "已完成本轮设计发散。";
+  }
+
+  if (input.task?.status === "generating") {
+    return "正在生成本轮方向草图。";
+  }
+
+  if (input.operation?.type === "delete") {
+    return "已删除当前节点及其整棵子树。";
+  }
+
+  if (input.operation?.type === "undo") {
+    return "已撤回上一轮树操作，画布恢复到上一状态。";
+  }
+
+  if (input.operation?.type === "redo") {
+    return "已重做刚刚撤回的树操作。";
+  }
+
+  return input.previousSummary;
+}
+
+async function pollGenerationTask(
+  taskId: string,
+  attempts = 80,
+  intervalMs = 500
+): Promise<GenerationTask> {
+  let latestTask = await getGenerationTask(taskId);
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (latestTask.status === "completed" || latestTask.status === "failed") {
+      return latestTask;
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, intervalMs);
+    });
+    latestTask = await getGenerationTask(taskId);
+  }
+
+  return latestTask;
 }
 
 function resolveApiUiState(input: {
   previous: WorkbenchUiState;
+  previousServerState: WorkbenchServerState;
   serverState: WorkbenchServerState;
   task: GenerationTask | null;
+  operation: TreeOperation | null;
   apiSessionId: string;
   apiStatus?: WorkbenchUiState["apiStatus"];
   apiError?: string | null;
 }): WorkbenchUiState {
-  const selectedNodeId = resolveSelectedNodeId(
-    input.serverState,
-    input.previous.selectedNodeId
-  );
-  const resolvedTargetNodeId = input.task?.targetNodeId ?? selectedNodeId;
+  const currentNodeId = resolveCurrentNodeId({
+    serverState: input.serverState,
+    previous: input.previous,
+    task: input.task
+  });
+  const latestGeneratedNodeIds = resolveLatestGeneratedNodeIds({
+    previousNodes: input.previousServerState.nodes,
+    nextNodes: input.serverState.nodes,
+    task: input.task
+  });
 
   return {
     ...input.previous,
     apiSessionId: input.apiSessionId,
     apiStatus: input.apiStatus ?? "ready",
     apiError: input.apiError ?? null,
-    selectedNodeId: resolvedTargetNodeId,
-    currentTargetNodeId: input.task?.targetNodeId ?? selectedNodeId,
-    pendingAction: derivePendingAction(input.task),
+    currentNodeId,
     recordingState: "idle",
+    latestGeneratedNodeIds,
     isThinking: false,
-    lastActionSummary:
-      input.task?.status === "completed"
-        ? "已确认并完成本轮设计扩展。"
-        : input.task?.status === "awaiting_confirmation"
-          ? "已整理需求，等待你确认后再更新画布。"
-        : input.previous.lastActionSummary
+    canRedo: canRedoTreeOperation(input.serverState.treeOperations),
+    lastActionSummary: resolveActionSummary({
+      task: input.task,
+      operation: input.operation,
+      previousSummary: input.previous.lastActionSummary
+    })
   };
+}
+
+function resolveLatestGeneratedNodeIds(input: {
+  previousNodes: WorkbenchServerState["nodes"];
+  nextNodes: WorkbenchServerState["nodes"];
+  task: GenerationTask | null;
+}): string[] {
+  if (input.task?.status !== "completed") {
+    return [];
+  }
+
+  const previousNodeIds = new Set(input.previousNodes.map((node) => node.id));
+
+  return input.nextNodes
+    .filter((node) => !previousNodeIds.has(node.id))
+    .map((node) => node.id);
 }
 
 function createFreshApiSessionState(
@@ -223,14 +315,14 @@ function createFreshApiSessionState(
       apiSessionId: session.id,
       apiStatus: "ready",
       apiError: null,
-      selectedNodeId: session.id,
-      currentTargetNodeId: session.id,
-      pendingAction: null,
+      currentNodeId: session.id,
       expandedSystemMessageIds: [],
       recordingState: "idle",
       liveTranscriptText: null,
+      latestGeneratedNodeIds: [],
       lastActionSummary: "请用语音描述产品、功能、人群、关键需求和风格。",
-      isThinking: false
+      isThinking: false,
+      canRedo: false
     }
   };
 }
@@ -245,36 +337,6 @@ async function refreshApiState(input: {
     input.generationTasks,
     input.treeOperations
   );
-}
-
-async function refreshMessagesOnly(input: {
-  current: WorkbenchServerState;
-  sessionId: string;
-}): Promise<WorkbenchServerState> {
-  const messages = await loadWorkbenchMessages(input.sessionId);
-
-  return {
-    session: input.current.session,
-    nodes: input.current.nodes,
-    messages: messages.messages,
-    generationTasks: input.current.generationTasks,
-    treeOperations: input.current.treeOperations
-  };
-}
-
-async function refreshTreeOnly(input: {
-  current: WorkbenchServerState;
-  sessionId: string;
-}): Promise<WorkbenchServerState> {
-  const tree = await loadWorkbenchTree(input.sessionId);
-
-  return {
-    session: tree.session,
-    nodes: tree.nodes,
-    messages: input.current.messages,
-    generationTasks: input.current.generationTasks,
-    treeOperations: input.current.treeOperations
-  };
 }
 
 async function recoverStaleApiSession(
@@ -326,7 +388,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           apiError:
             error instanceof Error
               ? error.message
-              : "真实 API 暂不可用，请检查后端和硅基配置。",
+              : "真实 API 暂不可用，请检查后端、DeepSeek 和 SiliconFlow 配置。",
           recordingState: "idle",
           lastActionSummary: "真实 API 初始化失败。",
           isThinking: false
@@ -341,7 +403,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         apiStatus: "loading",
         apiError: null,
         recordingState: "processing",
-        pendingAction: null,
         lastActionSummary: "正在创建新的真实 API 测试会话。",
         isThinking: false
       }
@@ -359,7 +420,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           apiError:
             error instanceof Error
               ? error.message
-              : "真实 API 暂不可用，请检查后端和硅基配置。",
+              : "真实 API 暂不可用，请检查后端、DeepSeek 和 SiliconFlow 配置。",
           recordingState: "idle",
           lastActionSummary: "新的真实 API 测试会话创建失败。",
           isThinking: false
@@ -371,8 +432,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     set((state) => ({
       uiState: {
         ...state.uiState,
-        selectedNodeId: nodeId,
-        currentTargetNodeId: nodeId
+        currentNodeId: nodeId
       }
     }));
   },
@@ -474,16 +534,17 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     const state = get();
     const trimmed = transcriptText.trim();
 
-    if (
-      isConfirmationText(trimmed) &&
-      state.uiState.pendingAction?.kind === "task_confirmation"
-    ) {
-      await state.confirmPendingAction(trimmed);
+    if (!state.uiState.apiSessionId) {
+      state.setRecordingState("listening");
       return;
     }
 
-    if (!state.uiState.apiSessionId) {
-      state.setRecordingState("listening");
+    if (state.uiState.isThinking) {
+      return;
+    }
+
+    if (isUndoTranscript(trimmed)) {
+      await get().requestUndo();
       return;
     }
 
@@ -509,44 +570,42 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     }));
 
     try {
-      const task = await submitVoiceTurnToApi({
+      const submittedTurn = await submitVoiceTurnToApi({
         sessionId: state.uiState.apiSessionId,
         transcriptText: trimmed,
         targetNodeId:
-          state.uiState.currentTargetNodeId === state.serverState.session.id
+          state.uiState.currentNodeId === state.serverState.session.id
             ? null
-            : state.uiState.currentTargetNodeId
+            : state.uiState.currentNodeId
       });
-      const generationTasks = mergeTask(state.serverState.generationTasks, task);
-      const serverState =
-        task.status === "awaiting_confirmation"
-          ? await refreshMessagesOnly({
-              current: {
-                ...state.serverState,
-                generationTasks
-              },
-              sessionId: state.uiState.apiSessionId
-            })
-          : await refreshApiState({
-              sessionId: state.uiState.apiSessionId,
-              generationTasks,
-              treeOperations: state.serverState.treeOperations
-            });
+      const generationTask = submittedTurn.task
+        ? await pollGenerationTask(submittedTurn.task.id)
+        : null;
+      const generationTasks = generationTask
+        ? mergeTask(state.serverState.generationTasks, generationTask)
+        : state.serverState.generationTasks;
+      const treeOperations = submittedTurn.operation
+        ? [...state.serverState.treeOperations, submittedTurn.operation]
+        : state.serverState.treeOperations;
+      const serverState = await refreshApiState({
+        sessionId: state.uiState.apiSessionId,
+        generationTasks,
+        treeOperations
+      });
 
       set((current) => ({
         serverState,
         uiState: resolveApiUiState({
           previous: current.uiState,
+          previousServerState: state.serverState,
           serverState,
-          task,
+          task: generationTask,
+          operation: submittedTurn.operation,
           apiSessionId: state.uiState.apiSessionId as string
         })
       }));
     } catch (error) {
-      if (
-        !recovered &&
-        (isSessionNotFoundError(error) || isApiConnectionInterruptedError(error))
-      ) {
+      if (!recovered && isSessionNotFoundError(error)) {
         set((current) => ({
           serverState: {
             ...current.serverState,
@@ -596,6 +655,10 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       return;
     }
 
+    if (state.uiState.isThinking) {
+      return;
+    }
+
     try {
       const transcript = await get().transcribeAudioTurn(audio);
 
@@ -605,10 +668,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
       await get().submitVoiceTurn(transcript.transcriptText);
     } catch (error) {
-      if (
-        !recovered &&
-        (isSessionNotFoundError(error) || isApiConnectionInterruptedError(error))
-      ) {
+      if (!recovered && isSessionNotFoundError(error)) {
         set((current) => ({
           uiState: {
             ...current.uiState,
@@ -642,171 +702,32 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       }));
     }
   },
-  confirmPendingAction: async (confirmationText = "确认") => {
+  requestUndo: async () => {
     const state = get();
-    const pending = state.uiState.pendingAction;
 
-    if (!pending) {
-      return;
-    }
-
-    if (pending.kind === "task_confirmation") {
-      const pendingTask = state.serverState.generationTasks.find(
-        (task) => task.id === pending.taskId
-      );
-      const previousGoal = state.serverState.session.goal;
-      const optimisticUserMessage =
-        state.uiState.apiSessionId
-          ? createOptimisticUserMessage(state.uiState.apiSessionId, confirmationText)
-          : null;
-
-      set((current) => ({
-        serverState: {
-          ...(pendingTask
-            ? {
-                ...current.serverState,
-                session: {
-                  ...current.serverState.session,
-                  goal: pendingTask.designIntentSummary
-                }
-              }
-            : current.serverState),
-          messages: optimisticUserMessage
-            ? [...current.serverState.messages, optimisticUserMessage]
-            : current.serverState.messages
-        },
-        uiState: {
-          ...current.uiState,
-          recordingState: "processing",
-          apiError: null,
-          isThinking: false
-        }
-      }));
-
-      try {
-        const task = await confirmGenerationTask(pending.taskId);
-        const generationTasks = mergeTask(state.serverState.generationTasks, task);
-        const serverState = await refreshTreeOnly({
-          current: {
-            ...state.serverState,
-            session: pendingTask
-              ? {
-                  ...state.serverState.session,
-                  goal: pendingTask.designIntentSummary
-                }
-              : state.serverState.session,
-            messages: optimisticUserMessage
-              ? [...state.serverState.messages, optimisticUserMessage]
-              : state.serverState.messages,
-            generationTasks
-          },
-          sessionId: state.uiState.apiSessionId as string
-        });
-
-        set((current) => ({
-          serverState,
-          uiState: {
-            ...resolveApiUiState({
-              previous: current.uiState,
-              serverState,
-              task,
-              apiSessionId: state.uiState.apiSessionId as string
-            }),
-            pendingAction: null,
-            lastActionSummary: "已确认需求，画布已按新意图更新。",
-            isThinking: false
-          }
-        }));
-      } catch (error) {
-        set((current) => ({
-          serverState: pendingTask
-            ? {
-                ...current.serverState,
-                session: {
-                  ...current.serverState.session,
-                  goal: previousGoal
-                }
-              }
-            : current.serverState,
-          uiState: {
-            ...current.uiState,
-            apiStatus: "error",
-            apiError:
-              error instanceof Error ? error.message : "确认任务失败。",
-            recordingState: "idle",
-            isThinking: false
-          }
-        }));
-      }
-      return;
-    }
-  },
-  cancelPendingAction: async () => {
-    const state = get();
-    const pending = state.uiState.pendingAction;
-
-    if (!pending) {
-      return;
-    }
-
-    if (pending.kind === "task_confirmation") {
-      try {
-        const task = await cancelGenerationTask(pending.taskId);
-        const generationTasks = mergeTask(state.serverState.generationTasks, task);
-        const serverState = await refreshApiState({
-          sessionId: state.uiState.apiSessionId as string,
-          generationTasks,
-          treeOperations: state.serverState.treeOperations
-        });
-
-        set((current) => ({
-          serverState,
-          uiState: {
-            ...resolveApiUiState({
-              previous: current.uiState,
-              serverState,
-              task,
-              apiSessionId: state.uiState.apiSessionId as string
-            }),
-            pendingAction: null,
-            lastActionSummary: "已通过真实 API 取消本轮高风险操作。",
-            isThinking: false
-          }
-        }));
-      } catch (error) {
-        set((current) => ({
-          uiState: {
-            ...current.uiState,
-            apiStatus: "error",
-            apiError:
-              error instanceof Error ? error.message : "取消任务失败。"
-          }
-        }));
-      }
+    if (!state.uiState.apiSessionId || state.uiState.isThinking) {
       return;
     }
 
     set((current) => ({
       uiState: {
         ...current.uiState,
-        pendingAction: null,
-        lastActionSummary:
-          pending.kind === "undo"
-            ? "已保留当前树状态，未执行撤销。"
-            : "已取消本轮高风险操作确认。",
-        isThinking: false
+        apiError: null,
+        recordingState: "processing",
+        lastActionSummary: "正在撤回上一轮设计操作。",
+        isThinking: true
       }
     }));
-  },
-  requestUndo: async () => {
-    const state = get();
-
-    if (!state.uiState.apiSessionId) {
-      return;
-    }
 
     try {
-      const operation = await requestSessionUndo(state.uiState.apiSessionId);
+      const undoTarget = findLastUndoableTreeOperation(
+        state.serverState.treeOperations
+      );
+      const operation = await requestSessionUndo(
+        state.uiState.apiSessionId,
+        undoTarget?.id ?? null,
+        undoTarget?.taskId ?? null
+      );
       const treeOperations = [...state.serverState.treeOperations, operation];
       const serverState = await refreshApiState({
         sessionId: state.uiState.apiSessionId,
@@ -818,9 +739,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         serverState,
         uiState: {
           ...current.uiState,
-          pendingAction: null,
-          lastActionSummary: "真实 API 已记录撤销操作，树恢复逻辑仍在后端待补齐。",
-          isThinking: false
+          apiStatus: "ready",
+          currentNodeId:
+            serverState.session.currentSelectedNodeId ?? serverState.session.id,
+          latestGeneratedNodeIds: [],
+          recordingState: "idle",
+          lastActionSummary: "真实 API 已完成撤回，画布已恢复到上一轮状态。",
+          isThinking: false,
+          canRedo: canRedoTreeOperation(serverState.treeOperations)
         }
       }));
     } catch (error) {
@@ -829,7 +755,62 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           ...current.uiState,
           apiStatus: "error",
           apiError:
-            error instanceof Error ? error.message : "撤销请求失败。"
+            error instanceof Error ? error.message : "撤销请求失败。",
+          recordingState: "idle",
+          isThinking: false
+        }
+      }));
+    }
+  },
+  requestRedo: async () => {
+    const state = get();
+
+    if (!state.uiState.apiSessionId || state.uiState.isThinking || !state.uiState.canRedo) {
+      return;
+    }
+
+    set((current) => ({
+      uiState: {
+        ...current.uiState,
+        apiError: null,
+        recordingState: "processing",
+        lastActionSummary: "正在重做刚刚撤回的树操作。",
+        isThinking: true
+      }
+    }));
+
+    try {
+      const operation = await requestSessionRedo(state.uiState.apiSessionId);
+      const treeOperations = [...state.serverState.treeOperations, operation];
+      const serverState = await refreshApiState({
+        sessionId: state.uiState.apiSessionId,
+        generationTasks: state.serverState.generationTasks,
+        treeOperations
+      });
+
+      set((current) => ({
+        serverState,
+        uiState: {
+          ...current.uiState,
+          apiStatus: "ready",
+          currentNodeId:
+            serverState.session.currentSelectedNodeId ?? serverState.session.id,
+          latestGeneratedNodeIds: [],
+          recordingState: "idle",
+          lastActionSummary: "真实 API 已完成重做，画布已切回目标状态。",
+          isThinking: false,
+          canRedo: canRedoTreeOperation(serverState.treeOperations)
+        }
+      }));
+    } catch (error) {
+      set((current) => ({
+        uiState: {
+          ...current.uiState,
+          apiStatus: "error",
+          apiError:
+            error instanceof Error ? error.message : "重做请求失败。",
+          recordingState: "idle",
+          isThinking: false
         }
       }));
     }

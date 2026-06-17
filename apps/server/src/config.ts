@@ -10,6 +10,9 @@ export interface AppConfig {
   databaseUrl: string | null;
   persistenceMode: PersistenceMode;
   agentProvider: AgentProvider;
+  deepSeekApiKey: string | null;
+  deepSeekBaseUrl: string | null;
+  deepSeekBrainstormModel: string | null;
   siliconFlowApiKey: string | null;
   siliconFlowBaseUrl: string | null;
   siliconFlowAsrModel: string | null;
@@ -67,12 +70,18 @@ export function loadConfig(
       nodeEnv
     ),
     agentProvider: parseAgentProvider(mergedEnv.AGENT_PROVIDER),
+    deepSeekApiKey: mergedEnv.DEEPSEEK_API_KEY ?? null,
+    deepSeekBaseUrl: mergedEnv.DEEPSEEK_BASE_URL ?? null,
+    deepSeekBrainstormModel:
+      mergedEnv.DEEPSEEK_BRAINSTORM_MODEL ??
+      mergedEnv.DEEPSEEK_MODEL ??
+      null,
     siliconFlowApiKey: mergedEnv.SILICONFLOW_API_KEY ?? null,
     siliconFlowBaseUrl: mergedEnv.SILICONFLOW_BASE_URL ?? null,
     siliconFlowAsrModel: mergedEnv.SILICONFLOW_ASR_MODEL ?? null,
     siliconFlowBrainstormModel: mergedEnv.SILICONFLOW_BRAINSTORM_MODEL ?? null,
     siliconFlowImageModel: mergedEnv.SILICONFLOW_IMAGE_MODEL ?? null,
-    defaultBranchCount: Number(mergedEnv.DEFAULT_BRANCH_COUNT ?? 4),
+    defaultBranchCount: Number(mergedEnv.DEFAULT_BRANCH_COUNT ?? 3),
     maxBranchCount: Number(mergedEnv.MAX_BRANCH_COUNT ?? 4),
     sessionDomain: "industrial_design"
   };

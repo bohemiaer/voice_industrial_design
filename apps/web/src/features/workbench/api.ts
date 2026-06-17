@@ -8,11 +8,30 @@ import type {
 
 import type { WorkbenchServerState } from "./types";
 
-const DEFAULT_DEV_API_BASE_URL = "http://localhost:8787";
+const DEFAULT_DEV_API_PORT = "8787";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
-  (process.env.NODE_ENV === "development" ? DEFAULT_DEV_API_BASE_URL : "");
+function resolveApiBaseUrl(): string {
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(
+    /\/$/,
+    ""
+  );
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  if (process.env.NODE_ENV !== "development") {
+    return "";
+  }
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:${DEFAULT_DEV_API_PORT}`;
+  }
+
+  return `http://localhost:${DEFAULT_DEV_API_PORT}`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 type CreateSessionResponse = {
   session: Session;
@@ -31,7 +50,12 @@ type TaskResponse = {
   task: GenerationTask;
 };
 
-type UndoResponse = {
+type VoiceTurnResponse = {
+  task: GenerationTask | null;
+  operation: TreeOperation | null;
+};
+
+type TreeOperationResponse = {
   operation: TreeOperation;
 };
 
@@ -69,14 +93,6 @@ export function isSessionNotFoundError(error: unknown): boolean {
     error instanceof ApiClientError &&
     error.status === 404 &&
     error.code === "SESSION_NOT_FOUND"
-  );
-}
-
-export function isApiConnectionInterruptedError(error: unknown): boolean {
-  return (
-    error instanceof ApiClientError &&
-    error.status >= 500 &&
-    error.code === null
   );
 }
 
@@ -161,8 +177,8 @@ export async function submitVoiceTurn(input: {
   sessionId: string;
   transcriptText: string;
   targetNodeId: string | null;
-}): Promise<GenerationTask> {
-  const response = await requestJson<TaskResponse>(
+}): Promise<VoiceTurnResponse> {
+  return requestJson<VoiceTurnResponse>(
     `/api/sessions/${input.sessionId}/voice-turns`,
     {
       method: "POST",
@@ -172,15 +188,13 @@ export async function submitVoiceTurn(input: {
       })
     }
   );
-
-  return response.task;
 }
 
 export async function submitVoiceRecording(input: {
   sessionId: string;
   audio: Blob;
   targetNodeId: string | null;
-}): Promise<GenerationTask> {
+}): Promise<VoiceTurnResponse> {
   const formData = new FormData();
   formData.append("audio", input.audio, "recording.wav");
 
@@ -188,12 +202,10 @@ export async function submitVoiceRecording(input: {
     formData.append("targetNodeId", input.targetNodeId);
   }
 
-  const response = await requestForm<TaskResponse>(
+  return requestForm<VoiceTurnResponse>(
     `/api/sessions/${input.sessionId}/voice-turns`,
     formData
   );
-
-  return response.task;
 }
 
 export async function transcribeVoiceRecording(
@@ -212,36 +224,32 @@ export async function getGenerationTask(
   return response.task;
 }
 
-export async function confirmGenerationTask(
-  taskId: string
-): Promise<GenerationTask> {
-  const response = await requestJson<TaskResponse>(`/api/tasks/${taskId}/confirm`, {
-    method: "POST",
-    body: JSON.stringify({})
-  });
-
-  return response.task;
-}
-
-export async function cancelGenerationTask(
-  taskId: string
-): Promise<GenerationTask> {
-  const response = await requestJson<TaskResponse>(`/api/tasks/${taskId}/cancel`, {
-    method: "POST",
-    body: JSON.stringify({})
-  });
-
-  return response.task;
-}
-
 export async function requestSessionUndo(
-  sessionId: string
+  sessionId: string,
+  operationId: string | null = null,
+  taskId: string | null = null
 ): Promise<TreeOperation> {
-  const response = await requestJson<UndoResponse>(
+  const response = await requestJson<TreeOperationResponse>(
     `/api/sessions/${sessionId}/undo`,
     {
       method: "POST",
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        operationId: operationId ?? undefined,
+        taskId: taskId ?? undefined
+      })
+    }
+  );
+
+  return response.operation;
+}
+
+export async function requestSessionRedo(
+  sessionId: string
+): Promise<TreeOperation> {
+  const response = await requestJson<TreeOperationResponse>(
+    `/api/sessions/${sessionId}/redo`,
+    {
+      method: "POST"
     }
   );
 

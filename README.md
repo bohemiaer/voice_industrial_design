@@ -1,6 +1,12 @@
 # Voice Industrial Design
 
-一个面向工业设计前期发散场景的纯语音脑暴工作台。用户不依赖鼠标和键盘做主要输入，只通过语音描述目标、选择方向、确认高风险树操作，并在需要时撤销最近一次已确认操作，让模糊需求逐步长成一棵概念草图树。
+一个面向工业设计前期发散场景的纯语音脑暴工作台。用户不依赖鼠标和键盘做主要输入，只通过语音描述目标、沿当前节点发散、刷新当前节点下最近一次生成组，并在需要时执行删除、撤回、重做等树操作，让模糊需求逐步长成一棵概念草图树。
+
+<br />
+
+## DEMO视频地址
+
+<br />
 
 ## 项目现状
 
@@ -12,7 +18,7 @@
 - `preview/`：独立 HTML 预览工作台原型
 - `tests/`：预览、workspace、shared schema、server API 与 SiliconFlow gateway 测试
 
-当前后端已经从“前端直接提交 agent 结果”的占位形态，推进到由 server orchestrator 自主调用 agent gateway、校验结构化输出，并写入首轮 `expand_branches` 分支结果。默认测试使用 memory persistence 和 mock provider，不依赖真实外部模型调用。
+当前后端已经从“前端直接提交 agent 结果”的占位形态，推进到由 server orchestrator 自主调用 agent gateway、校验结构化输出，并通过异步任务写入树节点与草图结果。自动化测试中的 API 回归使用确定性 stub gateway，网关测试单独校验真实 DeepSeek / SiliconFlow 请求格式。
 
 ## MVP 范围
 
@@ -21,10 +27,9 @@
 - 纯语音工作台
 - 树状概念分支画布
 - 语音节点选中
-- 高风险树操作复述确认
 - 多分支草图生成
 - 节点稳定命名与数字序号引用
-- 单次撤销最近一次已确认树操作
+- 删除 / 撤回 / 重做最近一次树操作
 
 当前 MVP 明确不做：
 
@@ -42,10 +47,10 @@
 - 共享层：`Zod`
 - 数据层规划：`PostgreSQL`、`Redis`、`BullMQ`、`Drizzle ORM`
 - 测试：`node:test`
-- 模型服务规划：SiliconFlow
-  - `FunAudioLLM/SenseVoiceSmall`
-  - `deepseek-ai/DeepSeek-V4-Flash`
-  - `Tongyi-MAI/Z-Image-Turbo`
+- 模型服务规划：DeepSeek + SiliconFlow
+  - `deepseek-v4-flash`：结构化脑暴与任务决策
+  - `FunAudioLLM/SenseVoiceSmall`：语音转写
+  - `Tongyi-MAI/Z-Image-Turbo`：概念草图生成
 
 ## 目录结构
 
@@ -79,13 +84,23 @@ corepack pnpm install
 Copy-Item .env.example .env
 ```
 
-默认本地开发可直接使用：
+默认本地开发需要至少准备：
 
 - `PERSISTENCE_MODE=memory`
-- `AGENT_PROVIDER=mock`
+- `AGENT_PROVIDER=siliconflow`
 - `SERVER_PORT=8787`
+- `DEEPSEEK_API_KEY`
+- `SILICONFLOW_API_KEY`
 
-这意味着即使没有 PostgreSQL、Redis 或 SiliconFlow API Key，也可以先跑通当前骨架和测试。
+自动化测试不依赖真实外部调用，但本地手工联调需要可用的 DeepSeek 与 SiliconFlow 凭据。
+
+如果你希望本地直接产出草图图片，建议在 `.env` 中显式配置：
+
+```text
+SILICONFLOW_IMAGE_MODEL=Tongyi-MAI/Z-Image-Turbo
+```
+
+如果只想验证节点生成链路，也可以把 `SILICONFLOW_IMAGE_MODEL` 留空；服务端会跳过生图请求，但仍然会正常创建方向节点。
 
 ### 3. 启动前后端
 
@@ -125,16 +140,19 @@ corepack pnpm dev:server
 - `GET /api/sessions/:sessionId/tree`
 - `GET /api/sessions/:sessionId/messages`
 - `POST /api/sessions/:sessionId/voice-turns`
+- `POST /api/sessions/:sessionId/undo`
+- `POST /api/sessions/:sessionId/redo`
 - `GET /api/tasks/:taskId`
-- `POST /api/tasks/:taskId/confirm`
-- `POST /api/tasks/:taskId/cancel`
+- `POST /api/tasks/:taskId/confirm`（兼容保留）
+- `POST /api/tasks/:taskId/cancel`（兼容保留）
 
 其中语音回合链路已经覆盖：
 
 - transcript 驱动的后端编排
-- mock agent gateway 输出结构化脑暴结果
-- `expand_branches` 首轮写树
-- 高风险操作确认 / 取消状态流转
+- 统一意图分流：`diverge` / `refresh` / `delete` / `undo` / `redo`
+- `refresh = 当前节点下最近一次生成出来的那组子节点`
+- 异步 task 轮询与独立分支生图
+- 删除整棵子树、撤回、重做
 
 ### 静态预览原型
 
@@ -144,7 +162,7 @@ corepack pnpm dev:server
 python -m http.server 4173
 ```
 
-然后访问 [http://localhost:4173/preview/index.html](http://localhost:4173/preview/index.html)。
+然后访问 <http://localhost:4173/preview/index.html>。
 
 ## 常用命令
 
@@ -186,9 +204,9 @@ corepack pnpm test:server
 后端测试默认使用：
 
 - memory persistence
-- mock agent gateway
+- deterministic stub gateway
 
-因此不会触发真实的 SiliconFlow 网络请求。
+因此 API 回归不会触发真实外部网络请求；真实 provider 的请求格式由 `tests/server/siliconflow-gateway.test.mjs` 单独覆盖。
 
 ## 环境变量
 
@@ -199,50 +217,47 @@ NODE_ENV=development
 WEB_PORT=3000
 SERVER_PORT=8787
 PERSISTENCE_MODE=memory
-AGENT_PROVIDER=mock
+AGENT_PROVIDER=siliconflow
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voice_painting
 REDIS_URL=redis://localhost:6379
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_BRAINSTORM_MODEL=deepseek-v4-flash
 SILICONFLOW_API_KEY=your_siliconflow_api_key
 SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
 SILICONFLOW_ASR_MODEL=FunAudioLLM/SenseVoiceSmall
 SILICONFLOW_BRAINSTORM_MODEL=deepseek-ai/DeepSeek-V4-Flash
 SILICONFLOW_IMAGE_MODEL=Tongyi-MAI/Z-Image-Turbo
-DEFAULT_BRANCH_COUNT=4
+DEFAULT_BRANCH_COUNT=3
 MAX_BRANCH_COUNT=4
 SESSION_DOMAIN=industrial_design
 ```
 
 当前行为说明：
 
-- 当 `AGENT_PROVIDER=mock` 时，服务端使用本地 mock provider
-- 当 `AGENT_PROVIDER=siliconflow` 时，服务端会切换到真实 SiliconFlow provider adapter
+- 当 `AGENT_PROVIDER=siliconflow` 时，服务端会使用 DeepSeek 官方 chat + SiliconFlow ASR / 图像 provider
+- 当未配置 `DEEPSEEK_API_KEY` 时，chat 会临时回退到 SiliconFlow 兼容 chat 模型
+- 当配置 `SILICONFLOW_IMAGE_MODEL=Tongyi-MAI/Z-Image-Turbo` 时，分支生成会继续调用 SiliconFlow 图片接口并将 `imageUrl` 回填到节点
+- 当 `SILICONFLOW_IMAGE_MODEL` 留空时，服务端会跳过生图请求，但仍会正常创建文本节点
 - 当 `PERSISTENCE_MODE=memory` 时，当前数据不会持久化到 PostgreSQL
 - 当设置 `DATABASE_URL` 或在生产环境运行时，服务端会优先走 `postgres` 模式
 
 ## 第三方服务
 
-如需接入真实 SiliconFlow，需要：
+如需接入真实联调，需要：
 
-1. 注册 SiliconFlow 账号
-2. 创建 API Key
-3. 将 Key 写入根目录 `.env`
-4. 把 `AGENT_PROVIDER` 切换为 `siliconflow`
+1. 注册 DeepSeek 账号并创建 API Key
+2. 注册 SiliconFlow 账号并创建 API Key
+3. 将两个 Key 写入根目录 `.env`
+4. 保持 `AGENT_PROVIDER=siliconflow`
 
 当前计划模型分工：
 
+- `deepseek-v4-flash`：语音理解与结构化脑暴
 - `FunAudioLLM/SenseVoiceSmall`：语音转写
-- `deepseek-ai/DeepSeek-V4-Flash`：语音理解与结构化脑暴
 - `Tongyi-MAI/Z-Image-Turbo`：概念草图生成
 
-## 已知未完成项
-
-- multipart 音频上传解析
-- Redis / BullMQ 异步 worker
-- `packages/shared` 更细粒度的 domain schema 拆分
-- `refresh_layer` 与 `branch_deeper` 的完整树写入
-- 单次撤销的完整恢复逻辑
-- SiliconFlow 真实线上联调
-- 前后端联调后的完整语音闭环
+<br />
 
 ## 文档索引
 
