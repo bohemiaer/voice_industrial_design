@@ -4,7 +4,6 @@ export const TASK_STATUS = [
   "queued",
   "transcribing",
   "reasoning",
-  "awaiting_confirmation",
   "generating",
   "completed",
   "failed",
@@ -43,16 +42,16 @@ export const CONFIRMATION_STATUS = [
 ] as const;
 
 export const BRAINSTORM_ACTION_TYPE = [
-  "expand_branches",
-  "refresh_layer",
-  "branch_deeper"
+  "diverge",
+  "refresh"
 ] as const;
 
 export const TREE_OPERATION_TYPE = [
-  "expand_branches",
-  "refresh_layer",
-  "branch_deeper",
-  "undo"
+  "diverge",
+  "refresh",
+  "delete",
+  "undo",
+  "redo"
 ] as const;
 
 export const NODE_REFERENCE_STRATEGY = [

@@ -59,7 +59,7 @@ export class MockAgentGateway implements AgentGateway {
     input: TranscribeAudioInput
   ): Promise<TranscribeAudioOutput> {
     return {
-      transcriptText: input.transcriptText ?? "围绕当前目标生成四个方向"
+      transcriptText: input.transcriptText ?? "围绕当前目标生成三个方向"
     };
   }
 
@@ -79,9 +79,9 @@ export class MockAgentGateway implements AgentGateway {
       targetNodeId: input.selectedNodeId,
       branchCount,
       designIntentSummary: `围绕“${input.transcriptText}”收束本轮设计目标，并保持与初始需求一致。`,
-      assistantReply: `我理解你的需求是：${input.transcriptText}。接下来我会围绕 ${selectedLabel} ${actionSummary}，确认后再更新 root 并延展后续节点。`,
-      confirmationRequired: true,
-      rewrittenIntentForConfirmation: `我将围绕 ${selectedLabel} ${actionSummary}，先更新 root，再继续生成后续节点。`,
+      assistantReply: `我理解你的需求是：${input.transcriptText}。现在我会围绕 ${selectedLabel} ${actionSummary}。`,
+      confirmationRequired: false,
+      rewrittenIntentForConfirmation: null,
       promptHints: ["早期工业设计草图", "差异化造型语言", "白底线稿"],
       directionBriefs
     });
@@ -103,14 +103,10 @@ export class MockAgentGateway implements AgentGateway {
 
 function classifyAction(transcriptText: string): BrainstormActionType {
   if (/刷新|重来|换一版|替换/.test(transcriptText)) {
-    return "refresh_layer";
+    return "refresh";
   }
 
-  if (/下钻|深入|子方向|继续/.test(transcriptText)) {
-    return "branch_deeper";
-  }
-
-  return "expand_branches";
+  return "diverge";
 }
 
 function resolveBranchCount(
@@ -118,7 +114,7 @@ function resolveBranchCount(
   constraints: BrainstormAssistantInput["constraints"]
 ): number {
   const explicit = transcriptText.match(/[一二三四1234]/)?.[0];
-  const parsed = explicit ? parseChineseNumber(explicit) : constraints.maxBranchCount;
+  const parsed = explicit ? parseChineseNumber(explicit) : 3;
   return Math.min(
     constraints.maxBranchCount,
     Math.max(constraints.minBranchCount, parsed)
@@ -159,12 +155,8 @@ function describeAction(
   actionType: BrainstormActionType,
   branchCount: number
 ): string {
-  if (actionType === "refresh_layer") {
+  if (actionType === "refresh") {
     return `刷新当前层并生成 ${branchCount} 个新方向`;
-  }
-
-  if (actionType === "branch_deeper") {
-    return `沿当前线路继续下钻 ${branchCount} 个子方向`;
   }
 
   return `扩展 ${branchCount} 个新的设计方向`;

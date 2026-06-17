@@ -112,6 +112,7 @@ test("workbench page is composed from dedicated frontend components", () => {
 test("frontend workbench uses react flow and zustand", () => {
   assert.match(webPackage, /"dev": "next dev --turbo -H 127\.0\.0\.1"/);
   assert.match(webPackage, /"@xyflow\/react"/);
+  assert.match(webPackage, /"jszip"/);
   assert.match(webPackage, /"zustand"/);
   assert.match(storeSource, /create } from "zustand"/);
   assert.match(canvasWorkspaceSource, /ReactFlow/);
@@ -127,7 +128,23 @@ test("canvas lays out generated nodes as a vertical tree without obsolete toolba
   assert.match(canvasWorkspaceSource, /useReactFlow/);
   assert.match(canvasWorkspaceSource, /flowNodeIds/);
   assert.match(canvasWorkspaceSource, /fitView\(\{ padding: 0\.2, minZoom: 0\.48, maxZoom: 0\.88, duration: 420 \}\)/);
+  assert.match(canvasWorkspaceSource, /const \[isGlobalPreview, setIsGlobalPreview\] = useState\(false\)/);
+  assert.match(canvasWorkspaceSource, /viewportSnapshotRef/);
+  assert.match(canvasWorkspaceSource, /handleToggleGlobalPreview/);
+  assert.match(canvasWorkspaceSource, /handleExportImages/);
+  assert.match(canvasWorkspaceSource, /await import\("jszip"\)/);
+  assert.match(canvasWorkspaceSource, /voice-painting-images-/);
+  assert.match(canvasWorkspaceSource, /viewportAspectRatio/);
+  assert.match(canvasWorkspaceSource, /expandedWidth = Math\.max\(bounds\.width \* 2, 720\)/);
+  assert.match(canvasWorkspaceSource, /expandedHeight = Math\.max\(/);
+  assert.match(canvasWorkspaceSource, /y: bounds\.y - \(expandedHeight - bounds\.height\) \/ 2/);
   assert.match(canvasWorkspaceSource, /const rootNode/);
+  assert.match(canvasWorkspaceSource, /resolveRootNodeIntentSummary/);
+  assert.match(canvasWorkspaceSource, /findFirstUserTranscript/);
+  assert.match(canvasWorkspaceSource, /resolveRootNodeDisplayName/);
+  assert.match(canvasWorkspaceSource, /resolveRootNodeLabel/);
+  assert.match(canvasWorkspaceSource, /hasConfirmedRootIntent/);
+  assert.match(canvasWorkspaceSource, /createSymmetricTreeLayout/);
   assert.match(canvasWorkspaceSource, /id: serverState\.session\.id/);
   assert.match(canvasWorkspaceSource, /parentNodeId: node\.parentNodeId \?\? serverState\.session\.id/);
   assert.match(canvasWorkspaceSource, /sourcePosition: Position\.Bottom/);
@@ -137,6 +154,7 @@ test("canvas lays out generated nodes as a vertical tree without obsolete toolba
   assert.match(nodeCardSource, /node-card__empty-prompts/);
   assert.match(nodeCardSource, /node-card__requirement-text/);
   assert.match(nodeCardSource, /node\.intentSummary/);
+  assert.match(nodeCardSource, /showRootPromptHints/);
   assert.match(nodeCardSource, /描述产品类型/);
   assert.match(nodeCardSource, /目标人群/);
   assert.match(nodeCardSource, /关键需求/);
@@ -153,27 +171,41 @@ test("canvas lays out generated nodes as a vertical tree without obsolete toolba
   assert.match(globalsSource, /\.node-card__image/);
   assert.doesNotMatch(canvasWorkspaceSource, /label: "面板"/);
   assert.doesNotMatch(canvasWorkspaceSource, /label: "灵感"/);
-  assert.match(canvasWorkspaceSource, /selectionCursor/);
+  assert.match(canvasWorkspaceSource, /label: "全局显示"/);
+  assert.match(canvasWorkspaceSource, /label: "拖拽"/);
+  assert.doesNotMatch(canvasWorkspaceSource, /label: "框选"/);
   assert.match(uiMetaSource, /const nodeVerticalGap = 440/);
-  assert.match(uiMetaSource, /ordinal - \(layerCount \+ 1\) \/ 2/);
+  assert.match(uiMetaSource, /function createSymmetricTreeLayout/);
+  assert.match(uiMetaSource, /function measureSubtreeSpan/);
+  assert.match(uiMetaSource, /const siblingGapUnits =/);
+  assert.match(uiMetaSource, /parentCenterX - totalChildrenSpan \/ 2/);
   assert.match(uiMetaSource, /y: nodeOrigin\.y \+ depth \* nodeVerticalGap/);
 });
 
 test("frontend workbench defines server mirror and local ui state structures", () => {
   assert.match(typesSource, /type WorkbenchServerState =/);
   assert.match(typesSource, /type WorkbenchUiState =/);
+  assert.match(typesSource, /currentNodeId: string/);
+  assert.doesNotMatch(typesSource, /selectedNodeId:/);
+  assert.doesNotMatch(typesSource, /currentTargetNodeId:/);
   assert.doesNotMatch(typesSource, /WorkbenchFixture/);
 });
 
 test("conversation panel keeps only the message stream and recording input", () => {
   assert.match(conversationPanelSource, /<details className="system-log" open=\{isExpanded\}>/);
   assert.match(conversationPanelSource, /<RecordingBar/);
+  assert.match(conversationPanelSource, /hasConfirmedRootIntent/);
   assert.match(conversationPanelSource, /useEffect/);
   assert.match(conversationPanelSource, /useRef/);
   assert.match(conversationPanelSource, /scrollTop = scrollRegionRef\.current\.scrollHeight/);
   assert.match(conversationPanelSource, /onRecordingComplete=\{submitAudioTurn\}/);
   assert.match(conversationPanelSource, /onTextSubmit=\{submitVoiceTurn\}/);
   assert.match(conversationPanelSource, /thinkingMessage/);
+  assert.match(conversationPanelSource, /selectedNode\s*\?\s*createNodeUiMeta/);
+  assert.match(
+    conversationPanelSource,
+    /:\s*hasConfirmedRootIntent\s*\?\s*\[\]\s*:\s*rootPromptSuggestions/s
+  );
   assert.doesNotMatch(conversationPanelSource, /<ConfirmationCard/);
   assert.doesNotMatch(conversationPanelSource, /<CurrentTargetBanner/);
   assert.doesNotMatch(conversationPanelSource, /<IntentStatusCard/);
@@ -189,24 +221,25 @@ test("todo reflects the completed frontend framework, components, and mock flows
   assert.match(todo, /- \[x\] 实现 `CanvasWorkspace`/);
   assert.match(todo, /- \[x\] 实现 `BrainstormNodeCard`/);
   assert.match(todo, /- \[x\] 实现 `ConversationPanel`/);
-  assert.match(todo, /- \[x\] 实现 `CurrentTargetBanner`/);
   assert.match(todo, /- \[x\] 实现 `RecordingBar`/);
-  assert.match(todo, /- \[x\] 实现 `IntentStatusCard`/);
-  assert.match(todo, /- \[x\] 实现 `ConfirmationCard`/);
-  assert.match(todo, /- \[x\] 用 mock 数据跑通单次撤销页面/);
-  assert.match(todo, /- \[x\] 准备演示用 fixture：首层 4 个方向、下钻 3 个方向、刷新当前层结果/);
+  assert.match(todo, /- \[x\] 接通真实录音上传/);
+  assert.match(todo, /- \[x\] 跑通后端集成测试/);
 });
 
 test("workbench defines an api client for live session state", () => {
   assert.match(apiSource, /class ApiClientError extends Error/);
   assert.match(apiSource, /code: string \| null/);
-  assert.match(apiSource, /DEFAULT_DEV_API_BASE_URL = "http:\/\/localhost:8787"/);
+  assert.match(apiSource, /const DEFAULT_DEV_API_PORT = "8787"/);
+  assert.match(apiSource, /function resolveApiBaseUrl\(\): string/);
+  assert.match(
+    apiSource,
+    /window\.location\.protocol\}\x2f\x2f\$\{window\.location\.hostname\}:\$\{DEFAULT_DEV_API_PORT\}/
+  );
   assert.match(apiSource, /createWorkbenchSession/);
   assert.match(apiSource, /loadWorkbenchSessionState/);
   assert.match(apiSource, /submitVoiceTurn/);
+  assert.match(apiSource, /getGenerationTask/);
   assert.match(apiSource, /transcribeVoiceRecording/);
-  assert.match(apiSource, /confirmGenerationTask/);
-  assert.match(apiSource, /cancelGenerationTask/);
   assert.match(apiSource, /requestSessionUndo/);
   assert.match(apiSource, /\/api\/sessions/);
   assert.match(apiSource, /\/tree/);
@@ -228,8 +261,6 @@ test("workbench store is live-api only and does not fall back to demo fixtures",
   const initializeBody =
     storeSource.match(/initializeApiSession: async \(\) => \{[\s\S]*?\n  \},\n  selectNode:/)?.[0] ?? "";
   assert.doesNotMatch(initializeBody, /submitVoiceTurnToApi/);
-  assert.match(storeSource, /confirmGenerationTask/);
-  assert.match(storeSource, /cancelGenerationTask/);
   assert.match(storeSource, /requestSessionUndo/);
   assert.doesNotMatch(storeSource, /fixtures/);
   assert.doesNotMatch(storeSource, /workbenchFixture/);
@@ -266,38 +297,61 @@ test("workbench can explicitly start a fresh live api session for end-to-end tes
   assert.match(globalsSource, /\.topbar-reset/);
 });
 
-test("workbench recovers from stale in-memory api sessions after backend restart", () => {
+test("workbench only recovers when the backend session is actually missing", () => {
   assert.match(apiSource, /isSessionNotFoundError/);
-  assert.match(apiSource, /isApiConnectionInterruptedError/);
   assert.match(apiSource, /SESSION_NOT_FOUND/);
-  assert.match(apiSource, /status >= 500/);
-  assert.match(apiSource, /code === null/);
   assert.match(storeSource, /recoverStaleApiSession/);
-  assert.match(storeSource, /isApiConnectionInterruptedError/);
   assert.match(storeSource, /submitVoiceTurn\(transcriptText, true\)/);
   assert.match(storeSource, /submitAudioTurn\(audio, true\)/);
   assert.match(storeSource, /后端会话已重置/);
+  assert.doesNotMatch(apiSource, /status >= 500/);
+  assert.doesNotMatch(storeSource, /isApiConnectionInterruptedError/);
 });
 
-test("root selection is preserved after branch generation instead of drifting to the last mentioned node", () => {
-  assert.match(storeSource, /previousSelectedNodeId === serverState\.session\.id/);
+test("node selection falls back to the previous current node before using backend active node", () => {
+  assert.match(storeSource, /function resolveCurrentNodeId/);
+  assert.match(storeSource, /const previousCurrentNodeId = input\.previous\.currentNodeId/);
+  assert.match(storeSource, /previousCurrentNodeId === input\.serverState\.session\.id/);
   assert.doesNotMatch(storeSource, /serverState\.session\.lastMentionedNodeId \?\?/);
+  assert.match(
+    storeSource,
+    /currentNodeId,\s*recordingState:\s*"idle"/s
+  );
 });
 
-test("frontend shows the user bubble immediately and waits for confirmation before canvas mutation", () => {
+test("task-resolved target nodes become the new current node selection when the user points to a node", () => {
+  assert.match(storeSource, /function resolveTaskResolvedNodeId/);
+  assert.match(storeSource, /input\.task\?\.targetNodeId/);
+  assert.match(
+    storeSource,
+    /taskResolvedNodeId && visibleNodeIds\.has\(taskResolvedNodeId\)/
+  );
+  assert.match(storeSource, /if \(taskResolvedNodeId\) \{\s*return taskResolvedNodeId;\s*\}/s);
+});
+
+test("root node display is anchored to the first user transcript instead of the placeholder session goal", () => {
+  assert.match(canvasWorkspaceSource, /serverState\.messages/);
+  assert.match(canvasWorkspaceSource, /message\.role === "user"/);
+  assert.match(canvasWorkspaceSource, /message\.kind === "transcript"/);
+  assert.match(canvasWorkspaceSource, /intentSummary: resolveRootNodeIntentSummary/);
+  assert.doesNotMatch(canvasWorkspaceSource, /intentSummary: serverState\.session\.goal/);
+});
+
+test("node selection updates the current target directly without a pending confirmation state", () => {
+  assert.match(storeSource, /currentNodeId: nodeId/);
+  assert.doesNotMatch(storeSource, /pendingAction/);
+});
+
+test("frontend shows the user bubble immediately and refreshes the canvas from the live api", () => {
   assert.match(storeSource, /createOptimisticUserMessage/);
   assert.match(storeSource, /messages: \[\.\.\.current\.serverState\.messages, optimisticUserMessage\]/);
-  assert.match(storeSource, /createThinkingMessage/);
-  assert.match(storeSource, /content: "思考中\.\.\."/);
   assert.doesNotMatch(storeSource, /previewNodes/);
-  assert.match(storeSource, /pendingAction: derivePendingAction\(input\.task\)/);
+  assert.match(storeSource, /isThinking: true/);
+  assert.match(storeSource, /pollGenerationTask/);
+  assert.match(storeSource, /await refreshApiState\(/);
 });
 
-test("frontend supports confirm-by-text and multiline input without recycling the last transcript as placeholder", () => {
-  assert.match(storeSource, /isConfirmationText\(trimmed\)/);
-  assert.match(storeSource, /confirmPendingAction\(trimmed\)/);
-  assert.match(storeSource, /createOptimisticUserMessage\(\s*state\.uiState\.apiSessionId,\s*confirmationText\s*\)/s);
-  assert.match(storeSource, /messages: \[\.\.\.current\.serverState\.messages, optimisticUserMessage\]/);
+test("frontend supports multiline text input without recycling the last transcript as placeholder", () => {
   assert.match(recordingBarSource, /<textarea/);
   assert.match(recordingBarSource, /setTextInput\(""\)/);
   assert.match(recordingBarSource, /const inputPlaceholder =/);
@@ -310,10 +364,66 @@ test("frontend supports confirm-by-text and multiline input without recycling th
 test("workbench avoids full session reloads when a lighter refresh is enough", () => {
   assert.match(apiSource, /loadWorkbenchMessages/);
   assert.match(apiSource, /loadWorkbenchTree/);
-  assert.match(storeSource, /loadWorkbenchMessages/);
-  assert.match(storeSource, /loadWorkbenchTree/);
-  assert.match(storeSource, /task\.status === "awaiting_confirmation"/);
-  assert.match(storeSource, /return \{\s*session: input\.current\.session/s);
+  assert.match(apiSource, /getGenerationTask/);
+  assert.match(storeSource, /loadWorkbenchSessionState/);
+  assert.doesNotMatch(storeSource, /loadWorkbenchMessages/);
+  assert.doesNotMatch(storeSource, /loadWorkbenchTree/);
+  assert.doesNotMatch(storeSource, /awaiting_confirmation/);
+});
+
+test("frontend no longer requests the removed session voice-turn polling endpoint", () => {
+  assert.doesNotMatch(apiSource, /GET.*voice-turns/);
+  assert.doesNotMatch(storeSource, /\/api\/sessions\/.*\/voice-turns/);
+  assert.match(storeSource, /getGenerationTask/);
+});
+
+test("frontend undo sends the last client-tracked tree operation back to the api", () => {
+  assert.match(storeSource, /findLastUndoableTreeOperation\(\s*state\.serverState\.treeOperations\s*\)/s);
+  assert.match(
+    storeSource,
+    /requestSessionUndo\(\s*state\.uiState\.apiSessionId,\s*undoTarget\?\.id \?\? null,\s*undoTarget\?\.taskId \?\? null\s*\)/s
+  );
+  assert.match(apiSource, /operationId: operationId \?\? undefined/);
+  assert.match(apiSource, /taskId: taskId \?\? undefined/);
+});
+
+test("toolbar supports global preview toggle, zoom controls, and zip export", () => {
+  assert.match(canvasWorkspaceSource, /zoomOut\(\{ duration: 240 \}\)/);
+  assert.match(canvasWorkspaceSource, /zoomIn\(\{ duration: 240 \}\)/);
+  assert.match(canvasWorkspaceSource, /setViewport\(viewportSnapshotRef\.current, \{ duration: 360 \}\)/);
+  assert.match(canvasWorkspaceSource, /fitView\(\{ padding: 0\.16, minZoom: 0\.34, maxZoom: 0\.82, duration: 420 \}\)/);
+  assert.match(canvasWorkspaceSource, /disabled=\{isExporting \|\| serverState\.nodes\.every\(\(node\) => !node\.imageUrl\)\}/);
+  assert.match(canvasWorkspaceSource, /panOnDrag/);
+});
+
+test("typed or transcribed undo commands bypass ai generation and call the undo api directly", () => {
+  assert.match(storeSource, /function isUndoTranscript\(transcriptText: string\)/);
+  assert.match(storeSource, /撤回上一步/);
+  assert.match(storeSource, /撤销上一步/);
+  const submitVoiceTurnStart = storeSource.indexOf(
+    "submitVoiceTurn: async (transcriptText, recovered = false) => {"
+  );
+  const submitVoiceTurnEnd = storeSource.indexOf(
+    "submitAudioTurn: async",
+    submitVoiceTurnStart
+  );
+  const submitVoiceTurnBody =
+    submitVoiceTurnStart >= 0 && submitVoiceTurnEnd > submitVoiceTurnStart
+      ? storeSource.slice(submitVoiceTurnStart, submitVoiceTurnEnd)
+      : "";
+  const undoBranchBoundary = submitVoiceTurnBody.indexOf("const previousMessages");
+  const submitVoiceTurnUndoPrefix =
+    undoBranchBoundary > 0
+      ? submitVoiceTurnBody.slice(0, undoBranchBoundary)
+      : submitVoiceTurnBody;
+  assert.match(
+    submitVoiceTurnBody,
+    /if \(isUndoTranscript\(trimmed\)\) \{\s*await get\(\)\.requestUndo\(\);\s*return;\s*\}/s
+  );
+  assert.doesNotMatch(
+    submitVoiceTurnUndoPrefix,
+    /submitVoiceTurnToApi/
+  );
 });
 
 test("live workbench components derive node metadata from api data instead of fixtures", () => {
@@ -329,7 +439,7 @@ test("todo reflects the first api integration slice", () => {
   assert.match(todo, /- \[x\] 用真实 API 替换 tree mock/);
   assert.match(todo, /- \[x\] 用真实 API 替换 message mock/);
   assert.match(todo, /- \[x\] 用真实 API 替换 task mock/);
-  assert.match(todo, /- \[x\] 接通 confirm \/ cancel \/ undo/);
+  assert.match(todo, /- \[x\] 接通真实录音上传/);
 });
 
 test("workbench uploads real browser recordings through the api client", () => {
@@ -350,8 +460,12 @@ test("workbench uploads real browser recordings through the api client", () => {
   assert.match(recordingBarSource, /keydown/);
   assert.match(recordingBarSource, /keyup/);
   assert.match(recordingBarSource, /event\.code === "Space"/);
+  assert.match(recordingBarSource, /window\.addEventListener\("blur", handleWindowBlur\)/);
+  assert.match(recordingBarSource, /isEditableTarget\(document\.activeElement\)/);
   assert.match(recordingBarSource, /按住空格正在录音/);
   assert.match(recordingBarSource, /正在转文字/);
+  assert.match(recordingBarSource, /input-panel--recording/);
+  assert.match(recordingBarSource, /mic-button--recording/);
   assert.match(recordingBarSource, /liveTranscriptText/);
   assert.match(recordingBarSource, /onRecordingComplete/);
   assert.match(recordingBarSource, /onTextSubmit/);
@@ -361,18 +475,20 @@ test("workbench uploads real browser recordings through the api client", () => {
   assert.match(recordingBarSource, /handleTextSubmit/);
   assert.match(recordingBarSource, /event\.key === "Enter"/);
   assert.match(recordingBarSource, /submit-button/);
+  assert.match(globalsSource, /\.input-panel--recording/);
+  assert.match(globalsSource, /@keyframes recordingHalo/);
+  assert.match(globalsSource, /\.mic-button--recording/);
 });
 
-test("awaiting confirmation and partial branch failures are visible in the page state", () => {
-  assert.match(storeSource, /derivePendingAction/);
-  assert.match(storeSource, /status !== "awaiting_confirmation"/);
+test("direct execution removes awaiting confirmation state from the page store", () => {
+  assert.doesNotMatch(storeSource, /derivePendingAction/);
+  assert.doesNotMatch(storeSource, /awaiting_confirmation/);
   assert.match(intentStatusCardSource, /failedBranches/);
   assert.match(intentStatusCardSource, /部分分支失败/);
   assert.match(globalsSource, /\.branch-failure-summary/);
 });
 
-test("todo reflects recording upload and confirmation/failure verification", () => {
+test("todo reflects recording upload and direct execution verification", () => {
   assert.match(todo, /- \[x\] 接通真实录音上传/);
-  assert.match(todo, /- \[x\] 确认 `awaiting_confirmation` 页面状态正确/);
-  assert.match(todo, /- \[x\] 确认 branch 部分失败可以正确展示/);
+  assert.match(todo, /- \[x\] 跑通后端集成测试/);
 });

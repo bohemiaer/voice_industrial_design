@@ -66,7 +66,8 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
           title: input.title,
           goal: input.goal,
           productDomain: "industrial_design",
-          activeNodeId: null,
+          currentSelectedNodeId: null,
+          lastExecutedTargetNodeId: null,
           pendingNodeId: null,
           lastMentionedNodeId: null,
           nextPublicNodeNumber: 1,
@@ -93,7 +94,10 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
           ...current,
           goal: input.goal ?? current.goal,
           nextPublicNodeNumber: input.nextPublicNodeNumber,
-          activeNodeId: input.activeNodeId ?? current.activeNodeId,
+          currentSelectedNodeId:
+            input.currentSelectedNodeId ?? current.currentSelectedNodeId,
+          lastExecutedTargetNodeId:
+            input.lastExecutedTargetNodeId ?? current.lastExecutedTargetNodeId,
           lastMentionedNodeId:
             input.lastMentionedNodeId ?? current.lastMentionedNodeId,
           updatedAt: nowIso()
@@ -138,6 +142,7 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
             id: randomUUID(),
             sessionId: nodeInput.sessionId,
             parentNodeId: nodeInput.parentNodeId,
+            childGroupId: nodeInput.childGroupId,
             depth: nodeInput.depth,
             displayName: nodeInput.displayName,
             label: nodeInput.label,
@@ -182,11 +187,9 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
           sessionId: input.sessionId,
           actionType: input.actionType,
           targetNodeId: input.targetNodeId,
-          status: input.confirmationRequired ? "awaiting_confirmation" : "queued",
+          status: "queued",
           confirmationRequired: input.confirmationRequired,
-          confirmationStatus: input.confirmationRequired
-            ? "awaiting_confirmation"
-            : "not_required",
+          confirmationStatus: "not_required",
           rewrittenIntentForConfirmation: input.rewrittenIntentForConfirmation,
           branchCount: input.branchCount,
           transcriptText: input.transcriptText,
@@ -201,6 +204,20 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
       },
       async getById(taskId: string): Promise<GenerationTask | null> {
         return store.generationTasks.get(taskId) ?? null;
+      },
+      async getRunningBySessionId(sessionId: string): Promise<GenerationTask | null> {
+        return (
+          [...store.generationTasks.values()]
+            .reverse()
+            .find(
+              (task) =>
+                task.sessionId === sessionId &&
+                (task.status === "queued" ||
+                  task.status === "transcribing" ||
+                  task.status === "reasoning" ||
+                  task.status === "generating")
+            ) ?? null
+        );
       },
       async updateStatus(
         input: UpdateGenerationTaskStatusInput
@@ -308,22 +325,51 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
           type: input.type,
           targetNodeId: input.targetNodeId,
           targetLayerVersion: input.targetLayerVersion,
+          affectedChildGroupId: input.affectedChildGroupId,
           insertedNodeIds: input.insertedNodeIds,
+          deletedNodeIds: input.deletedNodeIds,
           supersededNodeIds: input.supersededNodeIds,
           restoredNodeIds: input.restoredNodeIds,
+          undoOfOperationId: input.undoOfOperationId,
+          redoOfOperationId: input.redoOfOperationId,
+          payload: input.payload,
           createdAt: nowIso()
         };
 
         store.treeOperations.push(operation);
         return operation;
       },
+      async getById(operationId: string): Promise<TreeOperation | null> {
+        return (
+          store.treeOperations.find((operation) => operation.id === operationId) ?? null
+        );
+      },
+      async getByTaskId(taskId: string): Promise<TreeOperation | null> {
+        return (
+          [...store.treeOperations]
+            .reverse()
+            .find((operation) => operation.taskId === taskId) ?? null
+        );
+      },
       async getLastUndoableBySessionId(
         sessionId: string
       ): Promise<TreeOperation | null> {
-        const operations = store.treeOperations.filter(
-          (operation) => operation.sessionId === sessionId && operation.type !== "undo"
+        const latestOperation = [...store.treeOperations]
+          .reverse()
+          .find((operation) => operation.sessionId === sessionId);
+
+        if (!latestOperation || latestOperation.type === "undo") {
+          return null;
+        }
+
+        return latestOperation;
+      },
+      async getLatestBySessionId(sessionId: string): Promise<TreeOperation | null> {
+        return (
+          [...store.treeOperations]
+            .reverse()
+            .find((operation) => operation.sessionId === sessionId) ?? null
         );
-        return operations.at(-1) ?? null;
       }
     }
   };

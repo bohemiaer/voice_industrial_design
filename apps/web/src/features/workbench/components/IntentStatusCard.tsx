@@ -8,7 +8,6 @@ const statusCopy: Record<GenerationTask["status"], string> = {
   queued: "排队中",
   transcribing: "语音转写中",
   reasoning: "意图理解中",
-  awaiting_confirmation: "等待确认",
   generating: "分支生成中",
   completed: "已完成",
   failed: "失败",

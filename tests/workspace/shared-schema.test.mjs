@@ -19,7 +19,7 @@ test("brainstorm output schema enforces confirmation rewrite and branch count", 
   const shared = await import(distEntry);
 
   const valid = shared.BrainstormAssistantOutputSchema.safeParse({
-    actionType: "branch_deeper",
+    actionType: "diverge",
     targetNodeId: "node_12",
     branchCount: 2,
     designIntentSummary: "沿轻薄办公感继续下钻",
@@ -59,7 +59,7 @@ test("brainstorm output schema enforces confirmation rewrite and branch count", 
   assert.equal(valid.success, true);
 
   const invalid = shared.BrainstormAssistantOutputSchema.safeParse({
-    actionType: "refresh_layer",
+    actionType: "refresh",
     targetNodeId: "node_12",
     branchCount: 2,
     designIntentSummary: "刷新当前层",
@@ -72,6 +72,60 @@ test("brainstorm output schema enforces confirmation rewrite and branch count", 
   assert.equal(invalid.success, false);
 });
 
+test("shared schemas accept unified turn-planner fields", async () => {
+  const shared = await import(distEntry);
+
+  const session = shared.SessionSchema.parse({
+    id: "session-1",
+    title: "Tree planner",
+    goal: "Unify workbench flow",
+    productDomain: "industrial_design",
+    currentSelectedNodeId: "session-1",
+    lastExecutedTargetNodeId: "session-1",
+    pendingNodeId: null,
+    lastMentionedNodeId: null,
+    nextPublicNodeNumber: 4,
+    createdAt: "2026-06-16T00:00:00.000+08:00",
+    updatedAt: "2026-06-16T00:00:00.000+08:00"
+  });
+
+  const task = shared.GenerationTaskSchema.parse({
+    id: "task-1",
+    sessionId: "session-1",
+    actionType: "diverge",
+    targetNodeId: "session-1",
+    status: "queued",
+    branchCount: 3,
+    transcriptText: "先发散三个方向",
+    designIntentSummary: "diverge root node",
+    branchTasks: [],
+    createdAt: "2026-06-16T00:00:00.000+08:00",
+    updatedAt: "2026-06-16T00:00:00.000+08:00"
+  });
+
+  const operation = shared.TreeOperationSchema.parse({
+    id: "op-1",
+    sessionId: "session-1",
+    taskId: "task-1",
+    type: "refresh",
+    targetNodeId: "node-2",
+    targetLayerVersion: 2,
+    affectedChildGroupId: "group-2",
+    insertedNodeIds: ["node-7", "node-8", "node-9"],
+    deletedNodeIds: [],
+    supersededNodeIds: ["node-4", "node-5", "node-6"],
+    restoredNodeIds: [],
+    undoOfOperationId: null,
+    redoOfOperationId: null,
+    payload: { branchCount: 3 },
+    createdAt: "2026-06-16T00:00:00.000+08:00"
+  });
+
+  assert.equal(session.currentSelectedNodeId, "session-1");
+  assert.equal(task.actionType, "diverge");
+  assert.equal(operation.affectedChildGroupId, "group-2");
+});
+
 test("tree node schema requires stable naming and voice aliases", async () => {
   const shared = await import(distEntry);
 
@@ -79,6 +133,7 @@ test("tree node schema requires stable naming and voice aliases", async () => {
     id: "node_12",
     sessionId: "session_1",
     parentNodeId: "node_7",
+    childGroupId: "group_2",
     depth: 2,
     displayName: "轻薄办公感",
     label: "方向 12",

@@ -140,9 +140,12 @@ function mapAgentGatewayError(error: AgentGatewayError): ApiError {
     case "ASR_AUDIO_REQUIRED":
       return new ApiError(400, error.code, error.message);
     case "SILICONFLOW_CONFIG_MISSING":
+    case "DEEPSEEK_CONFIG_MISSING":
       return new ApiError(500, error.code, error.message);
     case "SILICONFLOW_REQUEST_FAILED":
     case "SILICONFLOW_RESPONSE_INVALID":
+    case "DEEPSEEK_REQUEST_FAILED":
+    case "DEEPSEEK_RESPONSE_INVALID":
       return new ApiError(502, error.code, error.message);
     default:
       return new ApiError(500, error.code, error.message);

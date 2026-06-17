@@ -38,7 +38,8 @@ function mapSession(row: typeof sessionsTable.$inferSelect): Session {
     title: row.title,
     goal: row.goal,
     productDomain: "industrial_design",
-    activeNodeId: row.activeNodeId,
+    currentSelectedNodeId: row.currentSelectedNodeId,
+    lastExecutedTargetNodeId: row.lastExecutedTargetNodeId,
     pendingNodeId: row.pendingNodeId,
     lastMentionedNodeId: row.lastMentionedNodeId,
     nextPublicNodeNumber: row.nextPublicNodeNumber,
@@ -64,6 +65,7 @@ function mapTreeNode(row: typeof treeNodesTable.$inferSelect): TreeNode {
     id: row.id,
     sessionId: row.sessionId,
     parentNodeId: row.parentNodeId,
+    childGroupId: row.childGroupId,
     depth: row.depth,
     displayName: row.displayName,
     label: row.label,
@@ -122,9 +124,14 @@ function mapTreeOperation(row: typeof treeOperationsTable.$inferSelect): TreeOpe
     type: row.type as TreeOperation["type"],
     targetNodeId: row.targetNodeId,
     targetLayerVersion: row.targetLayerVersion,
+    affectedChildGroupId: row.affectedChildGroupId,
     insertedNodeIds: row.insertedNodeIds,
+    deletedNodeIds: row.deletedNodeIds,
     supersededNodeIds: row.supersededNodeIds,
     restoredNodeIds: row.restoredNodeIds,
+    undoOfOperationId: row.undoOfOperationId,
+    redoOfOperationId: row.redoOfOperationId,
+    payload: row.payload,
     createdAt: toIso(row.createdAt)
   };
 }
@@ -169,7 +176,8 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
             productDomain: "industrial_design",
             status: "active",
             rootNodeId: null,
-            activeNodeId: null,
+            currentSelectedNodeId: null,
+            lastExecutedTargetNodeId: null,
             pendingNodeId: null,
             lastMentionedNodeId: null,
             nextPublicNodeNumber: 1,
@@ -196,7 +204,9 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .set({
             goal: input.goal ?? undefined,
             nextPublicNodeNumber: input.nextPublicNodeNumber,
-            activeNodeId: input.activeNodeId ?? undefined,
+            currentSelectedNodeId: input.currentSelectedNodeId ?? undefined,
+            lastExecutedTargetNodeId:
+              input.lastExecutedTargetNodeId ?? undefined,
             lastMentionedNodeId: input.lastMentionedNodeId ?? undefined,
             updatedAt: new Date()
           })
@@ -253,6 +263,7 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
               sessionId: node.sessionId,
               parentNodeId: node.parentNodeId,
               createdFromTaskId: node.createdFromTaskId,
+              childGroupId: node.childGroupId,
               depth: node.depth,
               layerOrdinal: node.layerOrdinal,
               layerVersion: node.layerVersion,
@@ -316,11 +327,9 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
             targetNodeId: input.targetNodeId,
             actionType: input.actionType,
             branchCount: input.branchCount,
-            status: input.confirmationRequired ? "awaiting_confirmation" : "queued",
+            status: "queued",
             confirmationRequired: input.confirmationRequired,
-            confirmationStatus: input.confirmationRequired
-              ? "awaiting_confirmation"
-              : "not_required",
+            confirmationStatus: "not_required",
             transcriptText: input.transcriptText,
             designIntentSummary: input.designIntentSummary,
             rewrittenIntentForConfirmation: input.rewrittenIntentForConfirmation,
@@ -335,6 +344,18 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
       },
       async getById(taskId: string): Promise<GenerationTask | null> {
         return getGenerationTaskWithBranches(db, taskId);
+      },
+      async getRunningBySessionId(sessionId: string): Promise<GenerationTask | null> {
+        const rows = await db
+          .select()
+          .from(generationTasksTable)
+          .where(eq(generationTasksTable.sessionId, sessionId))
+          .orderBy(desc(generationTasksTable.createdAt))
+          .limit(20);
+        const task = rows.find((row) =>
+          ["queued", "transcribing", "reasoning", "generating"].includes(row.status)
+        );
+        return task ? getGenerationTaskWithBranches(db, task.id) : null;
       },
       async updateStatus(
         input: UpdateGenerationTaskStatusInput
@@ -416,14 +437,36 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
             type: input.type,
             targetNodeId: input.targetNodeId,
             targetLayerVersion: input.targetLayerVersion,
+            affectedChildGroupId: input.affectedChildGroupId,
             insertedNodeIds: input.insertedNodeIds,
+            deletedNodeIds: input.deletedNodeIds,
             supersededNodeIds: input.supersededNodeIds,
             restoredNodeIds: input.restoredNodeIds,
+            undoOfOperationId: input.undoOfOperationId,
+            redoOfOperationId: input.redoOfOperationId,
             payload: input.payload,
             createdAt: new Date()
           })
           .returning();
         return mapTreeOperation(inserted[0]);
+      },
+      async getById(operationId: string): Promise<TreeOperation | null> {
+        const rows = await db
+          .select()
+          .from(treeOperationsTable)
+          .where(eq(treeOperationsTable.id, operationId))
+          .limit(1);
+        return rows[0] ? mapTreeOperation(rows[0]) : null;
+      },
+      async getByTaskId(taskId: string): Promise<TreeOperation | null> {
+        const rows = await db
+          .select()
+          .from(treeOperationsTable)
+          .where(eq(treeOperationsTable.taskId, taskId))
+          .orderBy(desc(treeOperationsTable.createdAt))
+          .limit(10);
+        const operation = rows.find((row) => row.type !== "undo");
+        return operation ? mapTreeOperation(operation) : null;
       },
       async getLastUndoableBySessionId(
         sessionId: string
@@ -433,9 +476,23 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .from(treeOperationsTable)
           .where(eq(treeOperationsTable.sessionId, sessionId))
           .orderBy(desc(treeOperationsTable.createdAt))
-          .limit(10);
-        const operation = rows.find((row) => row.type !== "undo");
-        return operation ? mapTreeOperation(operation) : null;
+          .limit(1);
+        const latestOperation = rows[0];
+
+        if (!latestOperation || latestOperation.type === "undo") {
+          return null;
+        }
+
+        return mapTreeOperation(latestOperation);
+      },
+      async getLatestBySessionId(sessionId: string): Promise<TreeOperation | null> {
+        const rows = await db
+          .select()
+          .from(treeOperationsTable)
+          .where(eq(treeOperationsTable.sessionId, sessionId))
+          .orderBy(desc(treeOperationsTable.createdAt))
+          .limit(1);
+        return rows[0] ? mapTreeOperation(rows[0]) : null;
       }
     }
   };

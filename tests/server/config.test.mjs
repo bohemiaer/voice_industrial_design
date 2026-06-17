@@ -9,7 +9,7 @@ const configEntry = pathToFileURL(
   path.join(process.cwd(), "apps", "server", "dist", "config.js")
 ).href;
 
-test("loadConfig reads SiliconFlow settings from a dotenv file", async () => {
+test("loadConfig reads DeepSeek chat settings plus SiliconFlow ASR/image settings from a dotenv file", async () => {
   const { loadConfig } = await import(configEntry);
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "voice-config-"));
   const envPath = path.join(tempDir, ".env");
@@ -17,10 +17,12 @@ test("loadConfig reads SiliconFlow settings from a dotenv file", async () => {
     envPath,
     [
       "AGENT_PROVIDER=siliconflow",
+      "DEEPSEEK_API_KEY=deepseek-key",
+      "DEEPSEEK_BASE_URL=https://api.deepseek.com",
+      "DEEPSEEK_BRAINSTORM_MODEL=deepseek-v4-flash",
       "SILICONFLOW_API_KEY=test-key",
       "SILICONFLOW_BASE_URL=https://api.example.test/v1",
       "SILICONFLOW_ASR_MODEL=asr-model",
-      "SILICONFLOW_BRAINSTORM_MODEL=brainstorm-model",
       "SILICONFLOW_IMAGE_MODEL=image-model"
     ].join("\n")
   );
@@ -28,13 +30,15 @@ test("loadConfig reads SiliconFlow settings from a dotenv file", async () => {
   const config = loadConfig({}, envPath);
 
   assert.equal(config.agentProvider, "siliconflow");
+  assert.equal(config.deepSeekApiKey, "deepseek-key");
+  assert.equal(config.deepSeekBaseUrl, "https://api.deepseek.com");
+  assert.equal(config.deepSeekBrainstormModel, "deepseek-v4-flash");
   assert.equal(config.siliconFlowApiKey, "test-key");
   assert.equal(
     config.siliconFlowBaseUrl,
     "https://api.example.test/v1"
   );
   assert.equal(config.siliconFlowAsrModel, "asr-model");
-  assert.equal(config.siliconFlowBrainstormModel, "brainstorm-model");
   assert.equal(config.siliconFlowImageModel, "image-model");
 });
 

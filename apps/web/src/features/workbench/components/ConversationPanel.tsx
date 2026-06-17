@@ -7,16 +7,12 @@ import { createNodeUiMeta } from "../uiMeta";
 import { RecordingBar } from "./RecordingBar";
 
 function getIntentBadge(actionType?: MessageDecoration["actionType"]) {
-  if (actionType === "expand_branches") {
-    return { label: "EXPAND", className: "intent-expand" };
-  }
-
-  if (actionType === "refresh_layer") {
+  if (actionType === "refresh") {
     return { label: "REFRESH", className: "intent-refresh" };
   }
 
-  if (actionType === "branch_deeper") {
-    return { label: "DEEPEN", className: "intent-deepen" };
+  if (actionType === "diverge") {
+    return { label: "DIVERGE", className: "intent-expand" };
   }
 
   return null;
@@ -72,22 +68,30 @@ export function ConversationPanel() {
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
   const toggleSystemMessage = useWorkbenchStore((state) => state.toggleSystemMessage);
-  const cycleRecordingState = useWorkbenchStore((state) => state.cycleRecordingState);
+  const setRecordingState = useWorkbenchStore((state) => state.setRecordingState);
   const submitVoiceTurn = useWorkbenchStore((state) => state.submitVoiceTurn);
   const submitAudioTurn = useWorkbenchStore((state) => state.submitAudioTurn);
   const requestUndo = useWorkbenchStore((state) => state.requestUndo);
+  const isBusy =
+    uiState.isThinking ||
+    uiState.apiStatus === "loading" ||
+    uiState.recordingState === "processing";
 
   const selectedNode =
-    uiState.selectedNodeId === serverState.session.id
+    uiState.currentNodeId === serverState.session.id
       ? null
-      : serverState.nodes.find((node) => node.id === uiState.selectedNodeId) ??
+      : serverState.nodes.find((node) => node.id === uiState.currentNodeId) ??
         serverState.nodes[0];
+  const hasConfirmedRootIntent =
+    serverState.nodes.length > 0 || serverState.session.nextPublicNodeNumber > 1;
   const selectedNodeIndex = selectedNode
     ? serverState.nodes.findIndex((node) => node.id === selectedNode.id)
     : -1;
   const prompts = selectedNode
     ? createNodeUiMeta(selectedNode, Math.max(selectedNodeIndex, 0)).prompts
-    : rootPromptSuggestions;
+    : hasConfirmedRootIntent
+      ? []
+      : rootPromptSuggestions;
   const thinkingMessage = uiState.isThinking
     ? ({
         id: "optimistic-thinking",
@@ -131,7 +135,7 @@ export function ConversationPanel() {
               已选中 <strong>NODE {selectedNode.publicNodeNumber}</strong> · {selectedNode.displayName}
             </p>
           ) : (
-            <p>当前聚焦 ROOT 需求，确认后会先更新主需求再展开节点</p>
+            <p>当前聚焦 ROOT 需求，语音提交后会直接展开节点</p>
           )}
         </div>
       </header>
@@ -153,9 +157,10 @@ export function ConversationPanel() {
         prompts={prompts}
         recordingState={uiState.recordingState}
         liveTranscriptText={uiState.liveTranscriptText}
+        isBusy={isBusy}
         onPromptClick={handlePromptClick}
         onTextSubmit={submitVoiceTurn}
-        onCycleRecordingState={cycleRecordingState}
+        onRecordingStateChange={setRecordingState}
         onRecordingComplete={submitAudioTurn}
       />
     </aside>
