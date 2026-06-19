@@ -16,6 +16,7 @@ import type {
 } from "@voice-industrial-design/shared";
 
 export interface CreateSessionInput {
+  ownerUserId: string;
   title: string;
   goal: string;
 }

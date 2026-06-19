@@ -3,8 +3,8 @@ import "./globals.css";
 import type { ReactNode } from "react";
 
 export const metadata = {
-  title: "Voice Industrial Design",
-  description: "Voice-driven industrial design brainstorming workspace."
+  title: "概念树工作台",
+  description: "面向工业设计前期概念探索的可视化工作台。"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

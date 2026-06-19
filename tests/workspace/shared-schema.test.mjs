@@ -77,6 +77,7 @@ test("shared schemas accept unified turn-planner fields", async () => {
 
   const session = shared.SessionSchema.parse({
     id: "session-1",
+    ownerUserId: "user-1",
     title: "Tree planner",
     goal: "Unify workbench flow",
     productDomain: "industrial_design",

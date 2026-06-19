@@ -13,6 +13,14 @@ const appSource = readSource("apps/server/src/app.ts");
 const sessionRoutesSource = readSource("apps/server/src/routes/sessions.ts");
 const orchestratorSource = readSource("apps/server/src/orchestrator/service.ts");
 const siliconFlowSource = readSource("apps/server/src/agents/siliconflow.ts");
+const TEST_USER = {
+  userId: "00000000-0000-4000-8000-000000000001",
+  email: "designer@example.com"
+};
+const OTHER_USER = {
+  userId: "00000000-0000-4000-8000-000000000002",
+  email: "reviewer@example.com"
+};
 
 function readSource(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
@@ -23,7 +31,8 @@ async function createTestApp() {
   return buildApp({
     persistenceMode: "memory",
     agentProvider: "siliconflow",
-    agentGateway: createDeterministicGateway()
+    agentGateway: createDeterministicGateway(),
+    defaultAuthenticatedUser: TEST_USER
   });
 }
 
@@ -32,7 +41,28 @@ async function createTestAppWithGateway(agentGateway) {
   return buildApp({
     persistenceMode: "memory",
     agentProvider: "siliconflow",
-    agentGateway
+    agentGateway,
+    defaultAuthenticatedUser: TEST_USER
+  });
+}
+
+async function createAuthEnforcedTestApp() {
+  const { buildApp } = await import(appEntry);
+  return buildApp({
+    persistenceMode: "memory",
+    agentProvider: "siliconflow",
+    agentGateway: createDeterministicGateway(),
+    authVerifier: async (token) => {
+      if (token === "test-user-token") {
+        return TEST_USER;
+      }
+
+      if (token === "other-user-token") {
+        return OTHER_USER;
+      }
+
+      return null;
+    }
   });
 }
 
@@ -183,6 +213,12 @@ function liveTest(name, fn) {
   return test(name, { concurrency: false }, fn);
 }
 
+function authHeaders(token = "test-user-token") {
+  return {
+    authorization: `Bearer ${token}`
+  };
+}
+
 test("health endpoint reports server status", async () => {
   const app = await createTestApp();
 
@@ -197,6 +233,100 @@ test("health endpoint reports server status", async () => {
     service: "voice-industrial-design-server",
     persistenceMode: "memory"
   });
+
+  await app.close();
+});
+
+test("protected APIs reject requests without auth", async () => {
+  const app = await createAuthEnforcedTestApp();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "未登录测试",
+      goal: "验证接口必须登录"
+    }
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json().error.code, "AUTH_REQUIRED");
+
+  await app.close();
+});
+
+test("protected APIs reject invalid auth tokens", async () => {
+  const app = await createAuthEnforcedTestApp();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    headers: authHeaders("bad-token"),
+    payload: {
+      title: "无效 token 测试",
+      goal: "验证接口拒绝无效 token"
+    }
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json().error.code, "AUTH_INVALID");
+
+  await app.close();
+});
+
+test("session creation stores the authenticated owner user id", async () => {
+  const app = await createAuthEnforcedTestApp();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    headers: authHeaders(),
+    payload: {
+      title: "归属测试",
+      goal: "验证新会话归属当前用户"
+    }
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().session.ownerUserId, TEST_USER.userId);
+
+  await app.close();
+});
+
+test("users cannot read or mutate sessions owned by another user", async () => {
+  const app = await createAuthEnforcedTestApp();
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    headers: authHeaders(),
+    payload: {
+      title: "跨用户隔离",
+      goal: "验证其他用户不能访问这个会话"
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const { session } = createResponse.json();
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`,
+    headers: authHeaders("other-user-token")
+  });
+  assert.equal(treeResponse.statusCode, 404);
+  assert.equal(treeResponse.json().error.code, "SESSION_NOT_FOUND");
+
+  const voiceTurnResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    headers: authHeaders("other-user-token"),
+    payload: {
+      transcriptText: "围绕这个目标先发散三个方向",
+      targetNodeId: null
+    }
+  });
+  assert.equal(voiceTurnResponse.statusCode, 404);
+  assert.equal(voiceTurnResponse.json().error.code, "SESSION_NOT_FOUND");
 
   await app.close();
 });

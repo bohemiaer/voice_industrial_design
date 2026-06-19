@@ -3,6 +3,13 @@ import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 
 import { AgentGatewayError, type AgentGateway } from "./agents/types.js";
+import {
+  authenticateRequest,
+  createSupabaseJwtVerifier,
+  isProtectedApiRequest,
+  type AuthenticatedUser,
+  type AuthVerifier
+} from "./auth.js";
 import { loadConfig, type AgentProvider, type PersistenceMode } from "./config.js";
 import { createAgentGateway } from "./agents/index.js";
 import { createDatabase } from "./db/client.js";
@@ -19,6 +26,8 @@ export interface BuildAppOptions {
   persistenceMode?: PersistenceMode;
   agentProvider?: AgentProvider;
   agentGateway?: AgentGateway;
+  authVerifier?: AuthVerifier;
+  defaultAuthenticatedUser?: AuthenticatedUser;
 }
 
 export async function buildApp(
@@ -31,6 +40,7 @@ export async function buildApp(
     agentProvider: options.agentProvider ?? loadedConfig.agentProvider
   };
   const persistenceMode = config.persistenceMode;
+  const authVerifier = options.authVerifier ?? createSupabaseJwtVerifier(config);
   const app = Fastify({
     logger: true
   });
@@ -54,6 +64,14 @@ export async function buildApp(
 
     if (request.method === "OPTIONS") {
       return reply.status(204).send();
+    }
+
+    if (isProtectedApiRequest(request)) {
+      await authenticateRequest({
+        request,
+        verifier: authVerifier,
+        defaultAuthenticatedUser: options.defaultAuthenticatedUser
+      });
     }
   });
 

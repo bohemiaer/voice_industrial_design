@@ -33,6 +33,9 @@ function resolveApiBaseUrl(): string {
 
 const API_BASE_URL = resolveApiBaseUrl();
 
+let accessTokenProvider: (() => Promise<string | null> | string | null) | null =
+  null;
+
 type CreateSessionResponse = {
   session: Session;
 };
@@ -62,6 +65,12 @@ type TreeOperationResponse = {
 type TranscriptionResponse = {
   transcriptText: string;
 };
+
+export function setAccessTokenProvider(
+  provider: (() => Promise<string | null> | string | null) | null
+): void {
+  accessTokenProvider = provider;
+}
 
 class ApiClientError extends Error {
   status: number;
@@ -96,14 +105,28 @@ export function isSessionNotFoundError(error: unknown): boolean {
   );
 }
 
+async function createAuthHeaders(): Promise<Record<string, string>> {
+  const accessToken = accessTokenProvider
+    ? await accessTokenProvider()
+    : null;
+
+  return accessToken
+    ? {
+        Authorization: `Bearer ${accessToken}`
+      }
+    : {};
+}
+
 async function requestJson<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
+  const authHeaders = await createAuthHeaders();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders,
       ...init?.headers
     }
   });
@@ -117,8 +140,10 @@ async function requestJson<T>(
 }
 
 async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+  const authHeaders = await createAuthHeaders();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
+    headers: authHeaders,
     body: formData
   });
 

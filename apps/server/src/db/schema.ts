@@ -2,6 +2,7 @@ import { pgTable, uuid, text, integer, timestamp, boolean, jsonb } from "drizzle
 
 export const sessionsTable = pgTable("sessions", {
   id: uuid("id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
   title: text("title").notNull(),
   goal: text("goal").notNull(),
   productDomain: text("product_domain").notNull(),

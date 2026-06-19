@@ -63,6 +63,7 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
         const timestamp = nowIso();
         const session: Session = {
           id: randomUUID(),
+          ownerUserId: input.ownerUserId,
           title: input.title,
           goal: input.goal,
           productDomain: "industrial_design",

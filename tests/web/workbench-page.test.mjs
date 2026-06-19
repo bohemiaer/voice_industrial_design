@@ -8,6 +8,7 @@ const read = (...parts) =>
 
 const gitignore = read(".gitignore");
 const pageSource = read("apps", "web", "src", "app", "page.tsx");
+const workbenchPageSource = read("apps", "web", "src", "app", "workbench", "page.tsx");
 const todo = read("TODO.md");
 const webPackage = read("apps", "web", "package.json");
 const storeSource = read("apps", "web", "src", "features", "workbench", "store.ts");
@@ -40,6 +41,42 @@ const apiPath = path.join(
   "api.ts"
 );
 const apiSource = fs.existsSync(apiPath) ? fs.readFileSync(apiPath, "utf8") : "";
+const loginPagePath = path.join(
+  process.cwd(),
+  "apps",
+  "web",
+  "src",
+  "app",
+  "login",
+  "page.tsx"
+);
+const loginPageSource = fs.existsSync(loginPagePath)
+  ? fs.readFileSync(loginPagePath, "utf8")
+  : "";
+const authClientPath = path.join(
+  process.cwd(),
+  "apps",
+  "web",
+  "src",
+  "features",
+  "auth",
+  "supabase.ts"
+);
+const authClientSource = fs.existsSync(authClientPath)
+  ? fs.readFileSync(authClientPath, "utf8")
+  : "";
+const authHookPath = path.join(
+  process.cwd(),
+  "apps",
+  "web",
+  "src",
+  "features",
+  "auth",
+  "useAuthSession.ts"
+);
+const authHookSource = fs.existsSync(authHookPath)
+  ? fs.readFileSync(authHookPath, "utf8")
+  : "";
 const conversationPanelSource = read(
   "apps",
   "web",
@@ -101,12 +138,50 @@ test("gitignore excludes the frontend reference workspace", () => {
   assert.match(gitignore, /^frontend-refer\/$/m);
 });
 
-test("workbench page is composed from dedicated frontend components", () => {
-  assert.match(pageSource, /^"use client";/m);
-  assert.match(pageSource, /ReactFlowProvider/);
-  assert.match(pageSource, /<TopBar/);
-  assert.match(pageSource, /<CanvasWorkspace/);
-  assert.match(pageSource, /<ConversationPanel/);
+test("home page presents the landing hero and routes the primary action to the workbench", () => {
+  assert.match(pageSource, /import Link from "next\/link"/);
+  assert.match(pageSource, /概念树工作台/);
+  assert.match(pageSource, /工业设计概念探索/);
+  assert.match(pageSource, /立即体验/);
+  assert.match(pageSource, /href="\/workbench"/);
+  assert.doesNotMatch(pageSource, /ReactFlowProvider/);
+});
+
+test("home page follows the landing-page guide conversion structure", () => {
+  assert.match(pageSource, /Aesthetic direction:/);
+  assert.match(pageSource, /<header className="landing-header"/);
+  assert.match(pageSource, /设计团队正在用它整理早期方向/);
+  assert.match(pageSource, /data-section="product-media"/);
+  assert.match(pageSource, /data-section="benefits"/);
+  assert.match(pageSource, /data-section="testimonials"/);
+  assert.match(pageSource, /data-section="faq"/);
+  assert.match(pageSource, /data-section="final-cta"/);
+  assert.match(pageSource, /<footer className="landing-footer"/);
+  assert.match(pageSource, /联系我们/);
+  assert.match(pageSource, /隐私政策/);
+});
+
+test("landing page design system avoids generic template styling", () => {
+  assert.match(globalsSource, /--landing-font-display/);
+  assert.match(globalsSource, /--landing-ink/);
+  assert.match(globalsSource, /--landing-accent/);
+  assert.match(globalsSource, /@keyframes landingReveal/);
+  assert.match(globalsSource, /prefers-reduced-motion: reduce/);
+  assert.doesNotMatch(globalsSource, /Inter/);
+  assert.doesNotMatch(globalsSource, /Roboto/);
+});
+
+test("workbench route is composed from dedicated frontend components", () => {
+  assert.match(workbenchPageSource, /^"use client";/m);
+  assert.match(workbenchPageSource, /ReactFlowProvider/);
+  assert.match(workbenchPageSource, /<TopBar/);
+  assert.match(workbenchPageSource, /<CanvasWorkspace/);
+  assert.match(workbenchPageSource, /<ConversationPanel/);
+});
+
+test("workbench page keeps the existing flow workspace on a dedicated route", () => {
+  assert.match(workbenchPageSource, /data-testid="workbench-shell"/);
+  assert.match(workbenchPageSource, /<main className="workbench-page">/);
 });
 
 test("frontend workbench uses react flow and zustand", () => {
@@ -122,6 +197,41 @@ test("frontend workbench uses react flow and zustand", () => {
   assert.match(globalsSource, /\.flow-shell \.react-flow \{/);
   const viewportRule = globalsSource.match(/\.react-flow__viewport\s*\{[^}]*\}/)?.[0] ?? "";
   assert.doesNotMatch(viewportRule, /padding-left/);
+});
+
+test("web app declares Supabase auth dependency and client helpers", () => {
+  assert.match(webPackage, /"@supabase\/supabase-js"/);
+  assert.match(authClientSource, /createClient/);
+  assert.match(authClientSource, /NEXT_PUBLIC_SUPABASE_URL/);
+  assert.match(authClientSource, /NEXT_PUBLIC_SUPABASE_ANON_KEY/);
+  assert.match(authHookSource, /onAuthStateChange/);
+  assert.match(authHookSource, /getSession/);
+});
+
+test("login page supports email password registration and sign in", () => {
+  assert.match(loginPageSource, /^"use client";/m);
+  assert.match(loginPageSource, /signInWithPassword/);
+  assert.match(loginPageSource, /signUp/);
+  assert.match(loginPageSource, /useSearchParams/);
+  assert.match(loginPageSource, /next/);
+  assert.match(loginPageSource, /邮箱/);
+  assert.match(loginPageSource, /密码/);
+  assert.match(loginPageSource, /创建账号/);
+});
+
+test("workbench route gates live api initialization on auth state", () => {
+  assert.match(workbenchPageSource, /useAuthSession/);
+  assert.match(workbenchPageSource, /router\.replace\(`\/login\?next=\$\{encodeURIComponent\("\/workbench"\)\}`\)/);
+  assert.match(workbenchPageSource, /authStatus === "authenticated"/);
+  assert.match(workbenchPageSource, /initializeApiSession/);
+});
+
+test("workbench api client attaches Supabase bearer tokens to json and form requests", () => {
+  assert.match(apiSource, /setAccessTokenProvider/);
+  assert.match(apiSource, /Authorization/);
+  assert.match(apiSource, /Bearer \$\{accessToken\}/);
+  assert.match(apiSource, /requestJson/);
+  assert.match(apiSource, /requestForm/);
 });
 
 test("canvas lays out generated nodes as a vertical tree without obsolete toolbar entries", () => {
@@ -271,12 +381,12 @@ test("workbench store is live-api only and does not fall back to demo fixtures",
 });
 
 test("page initializes the live api session without exposing demo scenario controls", () => {
-  assert.match(pageSource, /useEffect/);
-  assert.match(pageSource, /initializeApiSession/);
-  assert.match(pageSource, /startNewApiSession/);
-  assert.match(pageSource, /onStartNewSession/);
-  assert.doesNotMatch(pageSource, /workbenchScenarioOptions/);
-  assert.doesNotMatch(pageSource, /onScenarioChange/);
+  assert.match(workbenchPageSource, /useEffect/);
+  assert.match(workbenchPageSource, /initializeApiSession/);
+  assert.match(workbenchPageSource, /startNewApiSession/);
+  assert.match(workbenchPageSource, /onStartNewSession/);
+  assert.doesNotMatch(workbenchPageSource, /workbenchScenarioOptions/);
+  assert.doesNotMatch(workbenchPageSource, /onScenarioChange/);
   assert.doesNotMatch(topBarSource, /scenarios:/);
   assert.match(topBarSource, /onStartNewSession/);
   assert.match(topBarSource, /重新开始测试/);

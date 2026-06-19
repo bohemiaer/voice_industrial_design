@@ -35,6 +35,7 @@ function toIso(value: Date): string {
 function mapSession(row: typeof sessionsTable.$inferSelect): Session {
   return {
     id: row.id,
+    ownerUserId: row.ownerUserId,
     title: row.title,
     goal: row.goal,
     productDomain: "industrial_design",
@@ -171,6 +172,7 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .insert(sessionsTable)
           .values({
             id: randomUUID(),
+            ownerUserId: input.ownerUserId,
             title: input.title,
             goal: input.goal,
             productDomain: "industrial_design",

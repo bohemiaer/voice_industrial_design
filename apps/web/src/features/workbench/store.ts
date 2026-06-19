@@ -42,6 +42,7 @@ const initialTimestamp = "2026-06-14T00:00:00.000+08:00";
 const initialServerState: WorkbenchServerState = {
   session: {
     id: "pending-api-session",
+    ownerUserId: "pending-auth-user",
     title: "AI 语音工业设计脑暴",
     goal: "围绕桌面智能设备生成早期工业设计方向",
     productDomain: "industrial_design",

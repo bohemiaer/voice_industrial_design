@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import { requireAuth, type AuthenticatedUser } from "../auth.js";
 import { ApiError } from "../errors.js";
 import type { Orchestrator } from "../orchestrator/service.js";
 import type { AppServices } from "../repositories/types.js";
@@ -28,6 +29,7 @@ export async function registerSessionRoutes(
   orchestrator: Orchestrator
 ): Promise<void> {
   app.post("/api/transcriptions", async (request) => {
+    requireAuth(request);
     const input = await parseVoiceTurnRequest(request);
     const transcript = await orchestrator.transcribeAudio({
       transcriptText: input.transcriptText,
@@ -41,18 +43,20 @@ export async function registerSessionRoutes(
   });
 
   app.post("/api/sessions", async (request, reply) => {
+    const currentUser = requireAuth(request);
     const input = createSessionSchema.parse(request.body);
-    const session = await services.repositories.sessions.create(input);
+    const session = await services.repositories.sessions.create({
+      ...input,
+      ownerUserId: currentUser.userId
+    });
     return reply.status(201).send({ session });
   });
 
   app.get("/api/sessions/:sessionId/tree", async (request) => {
+    const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
     const session = await services.repositories.sessions.getById(sessionId);
-
-    if (!session) {
-      throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
-    }
+    assertSessionOwner(session, currentUser);
 
     const nodes = await services.repositories.treeNodes.listBySessionId(sessionId);
     return {
@@ -62,24 +66,20 @@ export async function registerSessionRoutes(
   });
 
   app.get("/api/sessions/:sessionId/messages", async (request) => {
+    const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
     const session = await services.repositories.sessions.getById(sessionId);
-
-    if (!session) {
-      throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
-    }
+    assertSessionOwner(session, currentUser);
 
     const messages = await services.repositories.messages.listBySessionId(sessionId);
     return { messages };
   });
 
   app.post("/api/sessions/:sessionId/voice-turns", async (request, reply) => {
+    const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
     const session = await services.repositories.sessions.getById(sessionId);
-
-    if (!session) {
-      throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
-    }
+    assertSessionOwner(session, currentUser);
 
     const input = await parseVoiceTurnRequest(request);
     const result = await orchestrator.processVoiceTurn({
@@ -97,7 +97,10 @@ export async function registerSessionRoutes(
   });
 
   app.post("/api/sessions/:sessionId/undo", async (request) => {
+    const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
+    const session = await services.repositories.sessions.getById(sessionId);
+    assertSessionOwner(session, currentUser);
     const {
       operationId,
       taskId
@@ -121,13 +124,25 @@ export async function registerSessionRoutes(
   });
 
   app.post("/api/sessions/:sessionId/redo", async (request) => {
+    const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
+    const session = await services.repositories.sessions.getById(sessionId);
+    assertSessionOwner(session, currentUser);
     const operation = await orchestrator.redoSession({ sessionId });
 
     return {
       operation
     };
   });
+}
+
+function assertSessionOwner<T extends { ownerUserId: string }>(
+  session: T | null,
+  currentUser: AuthenticatedUser
+): asserts session is T {
+  if (!session || session.ownerUserId !== currentUser.userId) {
+    throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
+  }
 }
 
 async function parseVoiceTurnRequest(request: {

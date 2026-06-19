@@ -64,6 +64,7 @@ export const TreeNodeSchema = z.object({
 
 export const SessionSchema = z.object({
   id: z.string().min(1),
+  ownerUserId: z.string().min(1),
   title: z.string().min(1),
   goal: z.string().min(1),
   productDomain: ProductDomainSchema,

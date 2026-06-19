@@ -89,6 +89,10 @@ Copy-Item .env.example .env
 - `PERSISTENCE_MODE=memory`
 - `AGENT_PROVIDER=siliconflow`
 - `SERVER_PORT=8787`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_JWT_SECRET`
 - `DEEPSEEK_API_KEY`
 - `SILICONFLOW_API_KEY`
 
@@ -220,6 +224,11 @@ PERSISTENCE_MODE=memory
 AGENT_PROVIDER=siliconflow
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voice_painting
 REDIS_URL=redis://localhost:6379
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_JWT_SECRET=your_supabase_jwt_secret
+SUPABASE_JWT_AUDIENCE=authenticated
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_BRAINSTORM_MODEL=deepseek-v4-flash
@@ -235,6 +244,10 @@ SESSION_DOMAIN=industrial_design
 
 当前行为说明：
 
+- `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 供 Web 端注册、登录和读取当前会话使用
+- `SUPABASE_URL`、`SUPABASE_JWT_SECRET` 和 `SUPABASE_JWT_AUDIENCE` 供 Server 端校验 Supabase access token 使用
+- 未登录用户可以访问首页，但进入 `/workbench` 会被引导到 `/login?next=/workbench`
+- 新建的后端 session 会写入当前 Supabase 用户的 `ownerUserId`，其他用户无法读取或修改
 - 当 `AGENT_PROVIDER=siliconflow` 时，服务端会使用 DeepSeek 官方 chat + SiliconFlow ASR / 图像 provider
 - 当未配置 `DEEPSEEK_API_KEY` 时，chat 会临时回退到 SiliconFlow 兼容 chat 模型
 - 当配置 `SILICONFLOW_IMAGE_MODEL=Tongyi-MAI/Z-Image-Turbo` 时，分支生成会继续调用 SiliconFlow 图片接口并将 `imageUrl` 回填到节点
@@ -270,4 +283,3 @@ SESSION_DOMAIN=industrial_design
 - [比赛 PR 计划](./docs/superpowers/plans/2026-06-12-contest-pr-plan.md)
 - [HTML 预览计划](./docs/superpowers/plans/2026-06-12-html-preview-workbench.md)
 - [开发 TODO](./TODO.md)
-

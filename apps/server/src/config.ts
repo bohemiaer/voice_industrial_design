@@ -18,6 +18,9 @@ export interface AppConfig {
   siliconFlowAsrModel: string | null;
   siliconFlowBrainstormModel: string | null;
   siliconFlowImageModel: string | null;
+  supabaseUrl: string | null;
+  supabaseJwtSecret: string | null;
+  supabaseJwtAudience: string;
   defaultBranchCount: number;
   maxBranchCount: number;
   sessionDomain: "industrial_design";
@@ -81,6 +84,9 @@ export function loadConfig(
     siliconFlowAsrModel: mergedEnv.SILICONFLOW_ASR_MODEL ?? null,
     siliconFlowBrainstormModel: mergedEnv.SILICONFLOW_BRAINSTORM_MODEL ?? null,
     siliconFlowImageModel: mergedEnv.SILICONFLOW_IMAGE_MODEL ?? null,
+    supabaseUrl: mergedEnv.SUPABASE_URL ?? null,
+    supabaseJwtSecret: mergedEnv.SUPABASE_JWT_SECRET ?? null,
+    supabaseJwtAudience: mergedEnv.SUPABASE_JWT_AUDIENCE ?? "authenticated",
     defaultBranchCount: Number(mergedEnv.DEFAULT_BRANCH_COUNT ?? 3),
     maxBranchCount: Number(mergedEnv.MAX_BRANCH_COUNT ?? 4),
     sessionDomain: "industrial_design"
