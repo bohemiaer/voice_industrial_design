@@ -1,11 +1,11 @@
 import Link from "next/link";
 
 /*
- * Aesthetic direction: editorial industrial lab.
- * Typography: high-contrast serif display with practical Chinese UI body text.
- * Palette: ink, paper, calibrated green, signal red, and soft zinc neutrals.
- * Motion: one restrained staggered reveal, tactile hover states, reduced-motion support.
- * Spatial approach: full-width product story with a large interface artifact as the visual anchor.
+ * Aesthetic direction: workbench-native.
+ * Typography: restrained Chinese UI body text with a calm product headline scale.
+ * Palette: the existing workbench whites, soft grays, teal action accents, and amber generation highlights.
+ * Motion: gentle page reveal and toolbar-like hover feedback.
+ * Spatial approach: landing sections feel like extensions of the actual canvas and right-side process panel.
  */
 
 const proofStats = [
@@ -128,7 +128,10 @@ export default function HomePage() {
       <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero__content">
           <p className="landing-kicker">工业设计概念探索</p>
-          <h1 id="landing-title">概念树工作台</h1>
+          <h1 id="landing-title">
+            概念树
+            <span>工作台</span>
+          </h1>
           <p className="landing-hero__lede">
             把模糊需求展开成多条可比较、可回看的概念方向。它帮助工业设计师在前期探索中更快拉开空间，
             保留分支关系，并沿着更有潜力的路径继续推进。
@@ -156,32 +159,12 @@ export default function HomePage() {
         </div>
 
         <div className="landing-hero__artifact" aria-label="概念树工作台产品预览">
-          <div className="landing-artifact">
-            <div className="landing-artifact__topbar">
-              <span>Session 04</span>
-              <strong>办公设备概念探索</strong>
-            </div>
-            <div className="landing-artifact__body">
-              <div className="landing-artifact__canvas">
-                <div className="landing-node landing-node--root">模糊需求</div>
-                <div className="landing-node-row">
-                  <div className="landing-node">轻薄办公感</div>
-                  <div className="landing-node landing-node--active">柔和家居感</div>
-                  <div className="landing-node">模块工具感</div>
-                </div>
-                <div className="landing-node-row landing-node-row--child">
-                  <div className="landing-node">低重心比例</div>
-                  <div className="landing-node">隐藏式接口</div>
-                </div>
-              </div>
-              <aside className="landing-artifact__panel">
-                <span>当前方向</span>
-                <strong>柔和家居感 / 第 2 个方向</strong>
-                <p>
-                  通过更圆润的边界、低对比材质和克制的部件线条，让产品更容易融入桌面环境。
-                </p>
-              </aside>
-            </div>
+          <div className="landing-artifact landing-artifact--image">
+            <img
+              className="landing-preview-image"
+              src="/images/concept-tree-workbench-preview.png"
+              alt="概念树工作台白色画布、分支节点和右侧过程面板预览"
+            />
           </div>
         </div>
       </section>
@@ -196,15 +179,11 @@ export default function HomePage() {
           </p>
         </div>
         <div className="landing-media__frame" aria-label="工作台界面示意">
-          <div className="landing-media__canvas">
-            <span className="landing-media__tag">白色画布</span>
-            <span className="landing-media__tag">分支路径</span>
-            <span className="landing-media__tag">当前节点</span>
-          </div>
-          <div className="landing-media__sidebar">
-            <strong>本轮摘要</strong>
-            <p>已基于第 12 号方向生成 3 个更轻薄的子方向。</p>
-          </div>
+          <img
+            className="landing-preview-image"
+            src="/images/concept-tree-workbench-preview.png"
+            alt="工作台界面示意图，展示白色画布上的概念树和右侧反馈面板"
+          />
         </div>
       </section>
 

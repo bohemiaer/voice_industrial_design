@@ -14,6 +14,7 @@ import type { TreeNode } from "@voice-industrial-design/shared";
 
 import { useWorkbenchStore } from "../store";
 import type { NodePalette } from "../types";
+import { resolveRootNodeDisplayName } from "../copy";
 import { createNodeUiMeta, createSymmetricTreeLayout } from "../uiMeta";
 import {
   BrainstormNodeCard,
@@ -53,46 +54,6 @@ const edgeTypes = {
   workbenchBezier: WorkbenchBezierEdge
 } satisfies EdgeTypes;
 
-const DEFAULT_SESSION_TITLE = "AI 语音工业设计脑暴";
-
-function extractProductName(text: string): string | null {
-  const normalized = text.trim();
-
-  if (!normalized) {
-    return null;
-  }
-
-  const patterns = [
-    /围绕(.+?)(生成|做|展开|延展|发散|设计|探索)/,
-    /探索(.+?)(的|方向|方案|概念)/,
-    /设计(?:一款|一个|一台|一种)?(.+?)(，|。|,|\.|并|让|要|用于)/
-  ];
-
-  for (const pattern of patterns) {
-    const match = normalized.match(pattern);
-
-    if (match?.[1]) {
-      return match[1].trim();
-    }
-  }
-
-  return null;
-}
-
-function resolveRootNodeDisplayName(session: {
-  title: string;
-  goal: string;
-}, rootIntentSummary: string): string {
-  if (
-    session.title !== DEFAULT_SESSION_TITLE &&
-    session.title.trim().length > 0
-  ) {
-    return session.title;
-  }
-
-  return extractProductName(rootIntentSummary) ?? truncateRootText(rootIntentSummary);
-}
-
 function resolveRootNodeLabel(
   session: { title: string; goal: string },
   rootIntentSummary: string
@@ -118,26 +79,16 @@ function findFirstUserTranscript(messages: Array<{
   return firstUserTranscript?.content ?? null;
 }
 
-function truncateRootText(text: string): string {
-  const normalized = text.trim();
-
-  if (normalized.length <= 16) {
-    return normalized || "产品需求";
-  }
-
-  return `${normalized.slice(0, 16)}...`;
-}
-
 function ToolbarGlyph({ icon }: { icon: string }) {
   if (icon === "zoom-label") {
     return <span className="toolbar-icon__text">100%</span>;
   }
 
   const commonProps = {
-    viewBox: "0 0 20 20",
+    viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.6,
+    strokeWidth: 2.2,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const
   };
@@ -145,57 +96,56 @@ function ToolbarGlyph({ icon }: { icon: string }) {
   const paths: Record<string, JSX.Element> = {
     selectionCursor: (
       <svg {...commonProps}>
-        <path d="M4 4h5" />
-        <path d="M4 4v5" />
-        <path d="M16 16h-5" />
-        <path d="M16 16v-5" />
-        <path d="M7 10h6" />
-        <path d="M10 7v6" />
+        <rect x="5" y="5" width="6" height="6" rx="1.4" />
+        <rect x="13" y="13" width="6" height="6" rx="1.4" />
+        <path d="M11 8h5" />
+        <path d="M16 8v5" />
       </svg>
     ),
     hand: (
       <svg {...commonProps}>
-        <path d="M7.2 9V4.8a1 1 0 0 1 2 0V8" />
-        <path d="M10 8V4a1 1 0 1 1 2 0v4" />
-        <path d="M12.8 8.6V5.2a1 1 0 1 1 2 0V11c0 3-2.2 5-4.9 5-2.4 0-4-.9-5.2-3.4L3.6 10a1 1 0 0 1 1.8-1l1 1.6V7.8a1 1 0 0 1 2 0V9" />
+        <path d="M7.8 12.1V8.4a1.25 1.25 0 0 1 2.5 0v4" />
+        <path d="M10.3 11.5V6.7a1.25 1.25 0 0 1 2.5 0v4.8" />
+        <path d="M12.8 11.6V7.3a1.25 1.25 0 0 1 2.5 0v4.9" />
+        <path d="M15.3 12.7V9.1a1.25 1.25 0 0 1 2.5 0v4.1c0 4.3-2.7 7-6.5 7-2.8 0-4.6-1.3-5.8-3.7l-.9-1.8a1.2 1.2 0 0 1 2.1-1.2l1.1 1.7v-3.1" />
       </svg>
     ),
     frame: (
       <svg {...commonProps}>
-        <path d="M5 7V5h3" />
-        <path d="M12 5h3v3" />
-        <path d="M15 13v2h-3" />
-        <path d="M8 15H5v-3" />
+        <path d="M5 9V5h4" />
+        <path d="M15 5h4v4" />
+        <path d="M19 15v4h-4" />
+        <path d="M9 19H5v-4" />
       </svg>
     ),
     minus: (
       <svg {...commonProps}>
-        <path d="M5 10h10" />
+        <path d="M6 12h12" />
       </svg>
     ),
     plus: (
       <svg {...commonProps}>
-        <path d="M10 5v10" />
-        <path d="M5 10h10" />
+        <path d="M12 6v12" />
+        <path d="M6 12h12" />
       </svg>
     ),
     undo: (
       <svg {...commonProps}>
-        <path d="M7 6 4 9l3 3" />
-        <path d="M5 9h6a4 4 0 1 1 0 8" />
+        <path d="m9 8-4 4 4 4" />
+        <path d="M5 12h9a4.5 4.5 0 1 1 0 9h-2" />
       </svg>
     ),
     redo: (
       <svg {...commonProps}>
-        <path d="m13 6 3 3-3 3" />
-        <path d="M15 9H9a4 4 0 1 0 0 8" />
+        <path d="m15 8 4 4-4 4" />
+        <path d="M19 12h-9a4.5 4.5 0 1 0 0 9h2" />
       </svg>
     ),
     export: (
       <svg {...commonProps}>
-        <path d="M10 4v8" />
-        <path d="m7 7 3-3 3 3" />
-        <path d="M5 12v2a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-2" />
+        <path d="M12 4v10" />
+        <path d="m8 8 4-4 4 4" />
+        <path d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V14" />
       </svg>
     )
   };
@@ -211,6 +161,7 @@ export function CanvasWorkspace() {
   const requestRedo = useWorkbenchStore((state) => state.requestRedo);
   const { fitBounds, fitView, getViewport, setViewport, zoomIn, zoomOut } = useReactFlow();
   const viewportSnapshotRef = useRef<Viewport | null>(null);
+  const workspacePaneRef = useRef<HTMLElement | null>(null);
   const [isGlobalPreview, setIsGlobalPreview] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const historyDisabled =
@@ -374,21 +325,63 @@ export function CanvasWorkspace() {
     return true;
   }, [fitBounds, nodes, uiState.latestGeneratedNodeIds]);
 
+  const focusDefaultWorkspace = useCallback(() => {
+    const workspacePane = workspacePaneRef.current;
+    const rootCard = workspacePane?.querySelector(".node-card.is-root");
+
+    if (!workspacePane || !rootCard) {
+      return;
+    }
+
+    const paneRect = workspacePane.getBoundingClientRect();
+    const rootRect = rootCard.getBoundingClientRect();
+    const currentViewport = getViewport();
+    const desiredCenterX = paneRect.left + paneRect.width * 0.5;
+    const desiredCenterY = paneRect.top + paneRect.height * 0.42;
+    const currentCenterX = rootRect.left + rootRect.width / 2;
+    const currentCenterY = rootRect.top + rootRect.height / 2;
+
+    void setViewport(
+      {
+        ...currentViewport,
+        x: currentViewport.x + desiredCenterX - currentCenterX,
+        y: currentViewport.y + desiredCenterY - currentCenterY
+      },
+      { duration: 420 }
+    );
+  }, [getViewport, setViewport]);
+
   useEffect(() => {
     if (isGlobalPreview) {
       return;
     }
 
-    const fitViewTimer = window.setTimeout(() => {
+    const focusTimers = [120, 360, 720].map((delay) => window.setTimeout(() => {
       if (focusLatestPreview()) {
         return;
       }
 
-      fitView({ padding: 0.2, minZoom: 0.48, maxZoom: 0.88, duration: 420 });
-    }, 80);
+      focusDefaultWorkspace();
+    }, delay));
 
-    return () => window.clearTimeout(fitViewTimer);
-  }, [fitView, flowNodeIds, focusLatestPreview, isGlobalPreview]);
+    return () => {
+      focusTimers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [flowNodeIds, focusDefaultWorkspace, focusLatestPreview, isGlobalPreview]);
+
+  useEffect(() => {
+    if (isGlobalPreview) {
+      return;
+    }
+
+    const handleResize = () => {
+      window.requestAnimationFrame(focusDefaultWorkspace);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, [focusDefaultWorkspace, isGlobalPreview]);
 
   const edges = useMemo<Edge[]>(() => {
     return visibleTreeNodes
@@ -490,7 +483,7 @@ export function CanvasWorkspace() {
   }, [isExporting, serverState.nodes]);
 
   return (
-    <section className="workspace-pane" data-testid="canvas-panel">
+    <section className="workspace-pane" data-testid="canvas-panel" ref={workspacePaneRef}>
       <div className="toolbar">
         <div className="toolbar-group">
           {toolbarItems.map((item) => (
@@ -546,7 +539,7 @@ export function CanvasWorkspace() {
                   return;
                 }
 
-                void fitView({ padding: 0.2, minZoom: 0.48, maxZoom: 0.88, duration: 320 });
+                focusDefaultWorkspace();
               }}
             >
               <span className="toolbar-icon__glyph" aria-hidden="true">

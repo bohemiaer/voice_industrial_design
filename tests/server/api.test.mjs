@@ -52,6 +52,7 @@ async function createAuthEnforcedTestApp() {
     persistenceMode: "memory",
     agentProvider: "siliconflow",
     agentGateway: createDeterministicGateway(),
+    authRequired: true,
     authVerifier: async (token) => {
       if (token === "test-user-token") {
         return TEST_USER;

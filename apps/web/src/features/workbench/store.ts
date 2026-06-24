@@ -16,6 +16,7 @@ import {
   submitVoiceTurn as submitVoiceTurnToApi,
   transcribeVoiceRecording
 } from "./api";
+import { DEFAULT_ROOT_REQUIREMENT, DEFAULT_SESSION_TITLE } from "./copy";
 import type {
   RecordingState,
   WorkbenchServerState,
@@ -43,8 +44,8 @@ const initialServerState: WorkbenchServerState = {
   session: {
     id: "pending-api-session",
     ownerUserId: "pending-auth-user",
-    title: "AI 语音工业设计脑暴",
-    goal: "围绕桌面智能设备生成早期工业设计方向",
+    title: DEFAULT_SESSION_TITLE,
+    goal: DEFAULT_ROOT_REQUIREMENT,
     productDomain: "industrial_design",
     currentSelectedNodeId: null,
     lastExecutedTargetNodeId: null,

@@ -7,6 +7,7 @@ import type {
 } from "@voice-industrial-design/shared";
 
 import type { WorkbenchServerState } from "./types";
+import { DEFAULT_ROOT_REQUIREMENT, DEFAULT_SESSION_TITLE } from "./copy";
 
 const DEFAULT_DEV_API_PORT = "8787";
 
@@ -159,8 +160,8 @@ export async function createWorkbenchSession(): Promise<Session> {
   const response = await requestJson<CreateSessionResponse>("/api/sessions", {
     method: "POST",
     body: JSON.stringify({
-      title: "AI 语音工业设计脑暴",
-      goal: "围绕桌面智能设备生成早期工业设计方向"
+      title: DEFAULT_SESSION_TITLE,
+      goal: DEFAULT_ROOT_REQUIREMENT
     })
   });
 

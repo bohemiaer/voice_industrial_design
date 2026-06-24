@@ -9,6 +9,7 @@
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@opentelemetry/api": "1.4.1",
     "@supabase/supabase-js": "^2.108.2",
     "@voice-industrial-design/shared": "workspace:*",
     "@xyflow/react": "^12.11.0",

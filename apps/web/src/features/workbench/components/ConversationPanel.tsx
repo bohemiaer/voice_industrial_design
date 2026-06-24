@@ -2,6 +2,11 @@ import type { Message } from "@voice-industrial-design/shared";
 import { useEffect, useRef } from "react";
 
 import { useWorkbenchStore } from "../store";
+import {
+  DEFAULT_SESSION_TITLE,
+  UNTITLED_PROJECT_NAME,
+  resolveRootNodeDisplayName
+} from "../copy";
 import type { MessageDecoration } from "../types";
 import { createNodeUiMeta } from "../uiMeta";
 import { RecordingBar } from "./RecordingBar";
@@ -64,6 +69,31 @@ const rootPromptSuggestions = [
   "风格希望更温和、轻薄、适合放在书桌上"
 ];
 
+function findFirstUserTranscript(messages: Message[]): string | null {
+  const firstUserTranscript = messages.find(
+    (message) => message.role === "user" && message.kind === "transcript"
+  );
+
+  return firstUserTranscript?.content ?? null;
+}
+
+function EditGlyph() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4.5 15.8v3.7h3.7L19 8.7a2.2 2.2 0 0 0 0-3.1l-.6-.6a2.2 2.2 0 0 0-3.1 0L4.5 15.8Z" />
+      <path d="m14.1 6.2 3.7 3.7" />
+    </svg>
+  );
+}
+
 export function ConversationPanel() {
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
@@ -82,6 +112,16 @@ export function ConversationPanel() {
       ? null
       : serverState.nodes.find((node) => node.id === uiState.currentNodeId) ??
         serverState.nodes[0];
+  const firstUserTranscript = findFirstUserTranscript(serverState.messages);
+  const rootIntentSummary = firstUserTranscript?.trim() || serverState.session.goal;
+  const rootDisplayName = resolveRootNodeDisplayName(
+    serverState.session,
+    rootIntentSummary
+  );
+  const projectDisplayName =
+    rootDisplayName === DEFAULT_SESSION_TITLE
+      ? UNTITLED_PROJECT_NAME
+      : rootDisplayName;
   const hasConfirmedRootIntent =
     serverState.nodes.length > 0 || serverState.session.nextPublicNodeNumber > 1;
   const selectedNodeIndex = selectedNode
@@ -129,7 +169,17 @@ export function ConversationPanel() {
     <aside className="sidebar" data-testid="conversation-panel">
       <header className="sidebar-header">
         <div className="sidebar-title">
-          <h2>{serverState.session.title}</h2>
+          <div className="sidebar-title__row">
+            <h2>{projectDisplayName}</h2>
+            <button
+              type="button"
+              className="sidebar-title__edit"
+              aria-label="编辑产品名称"
+              title="编辑产品名称"
+            >
+              <EditGlyph />
+            </button>
+          </div>
           {selectedNode ? (
             <p>
               已选中 <strong>NODE {selectedNode.publicNodeNumber}</strong> · {selectedNode.displayName}

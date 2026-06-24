@@ -88,6 +88,41 @@ function writeAscii(view: DataView, offset: number, text: string): void {
   }
 }
 
+function DockIcon({ name }: { name: "plus" | "record" | "send" }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const
+  };
+
+  if (name === "plus") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 6v12" />
+        <path d="M6 12h12" />
+      </svg>
+    );
+  }
+
+  if (name === "send") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 19V5" />
+        <path d="m6.5 10.5 5.5-5.5 5.5 5.5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...commonProps}>
+      <circle cx="12" cy="12" r="5.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function RecordingBar({
   prompts,
   recordingState,
@@ -343,7 +378,7 @@ export function RecordingBar({
 
         <div className="input-panel__controls">
           <button className="ghost-button" type="button" aria-label="上传附件" disabled={isBusy}>
-            +
+            <DockIcon name="plus" />
           </button>
 
           <div className="input-panel__actions">
@@ -360,7 +395,7 @@ export function RecordingBar({
                 void handleMicClick();
               }}
             >
-              <span className="mic-dot" />
+              <DockIcon name="record" />
               <span className="mic-wave" />
             </button>
             <button
@@ -372,7 +407,7 @@ export function RecordingBar({
                 void handleTextSubmit();
               }}
             >
-              ↑
+              <DockIcon name="send" />
             </button>
           </div>
         </div>

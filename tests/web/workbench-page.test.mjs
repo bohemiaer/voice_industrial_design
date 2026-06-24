@@ -148,9 +148,11 @@ test("home page presents the landing hero and routes the primary action to the w
 });
 
 test("home page follows the landing-page guide conversion structure", () => {
-  assert.match(pageSource, /Aesthetic direction:/);
+  assert.match(pageSource, /Aesthetic direction: workbench-native/);
   assert.match(pageSource, /<header className="landing-header"/);
   assert.match(pageSource, /设计团队正在用它整理早期方向/);
+  assert.match(pageSource, /\/images\/concept-tree-workbench-preview\.png/);
+  assert.match(pageSource, /landing-preview-image/);
   assert.match(pageSource, /data-section="product-media"/);
   assert.match(pageSource, /data-section="benefits"/);
   assert.match(pageSource, /data-section="testimonials"/);
@@ -163,8 +165,9 @@ test("home page follows the landing-page guide conversion structure", () => {
 
 test("landing page design system avoids generic template styling", () => {
   assert.match(globalsSource, /--landing-font-display/);
-  assert.match(globalsSource, /--landing-ink/);
-  assert.match(globalsSource, /--landing-accent/);
+  assert.match(globalsSource, /--landing-workbench-bg/);
+  assert.match(globalsSource, /--landing-workbench-accent/);
+  assert.match(globalsSource, /\.landing-preview-image/);
   assert.match(globalsSource, /@keyframes landingReveal/);
   assert.match(globalsSource, /prefers-reduced-motion: reduce/);
   assert.doesNotMatch(globalsSource, /Inter/);
@@ -219,10 +222,13 @@ test("login page supports email password registration and sign in", () => {
   assert.match(loginPageSource, /创建账号/);
 });
 
-test("workbench route gates live api initialization on auth state", () => {
-  assert.match(workbenchPageSource, /useAuthSession/);
-  assert.match(workbenchPageSource, /router\.replace\(`\/login\?next=\$\{encodeURIComponent\("\/workbench"\)\}`\)/);
-  assert.match(workbenchPageSource, /authStatus === "authenticated"/);
+test("workbench route starts the live workspace without login gating", () => {
+  assert.doesNotMatch(workbenchPageSource, /useAuthSession/);
+  assert.doesNotMatch(workbenchPageSource, /router\.replace/);
+  assert.doesNotMatch(workbenchPageSource, /authStatus/);
+  assert.doesNotMatch(workbenchPageSource, /auth-interaction-catcher/);
+  assert.doesNotMatch(workbenchPageSource, /auth-login-dialog/);
+  assert.doesNotMatch(workbenchPageSource, /\/login\?next=/);
   assert.match(workbenchPageSource, /initializeApiSession/);
 });
 
@@ -237,7 +243,12 @@ test("workbench api client attaches Supabase bearer tokens to json and form requ
 test("canvas lays out generated nodes as a vertical tree without obsolete toolbar entries", () => {
   assert.match(canvasWorkspaceSource, /useReactFlow/);
   assert.match(canvasWorkspaceSource, /flowNodeIds/);
-  assert.match(canvasWorkspaceSource, /fitView\(\{ padding: 0\.2, minZoom: 0\.48, maxZoom: 0\.88, duration: 420 \}\)/);
+  assert.match(canvasWorkspaceSource, /focusDefaultWorkspace/);
+  assert.match(canvasWorkspaceSource, /workspacePaneRef/);
+  assert.match(canvasWorkspaceSource, /querySelector\("\.node-card\.is-root"\)/);
+  assert.match(canvasWorkspaceSource, /paneRect\.width \* 0\.5/);
+  assert.match(canvasWorkspaceSource, /paneRect\.height \* 0\.42/);
+  assert.match(canvasWorkspaceSource, /setViewport/);
   assert.match(canvasWorkspaceSource, /const \[isGlobalPreview, setIsGlobalPreview\] = useState\(false\)/);
   assert.match(canvasWorkspaceSource, /viewportSnapshotRef/);
   assert.match(canvasWorkspaceSource, /handleToggleGlobalPreview/);
@@ -311,6 +322,8 @@ test("conversation panel keeps only the message stream and recording input", () 
   assert.match(conversationPanelSource, /onRecordingComplete=\{submitAudioTurn\}/);
   assert.match(conversationPanelSource, /onTextSubmit=\{submitVoiceTurn\}/);
   assert.match(conversationPanelSource, /thinkingMessage/);
+  assert.match(conversationPanelSource, /UNTITLED_PROJECT_NAME/);
+  assert.match(conversationPanelSource, /sidebar-title__edit/);
   assert.match(conversationPanelSource, /selectedNode\s*\?\s*createNodeUiMeta/);
   assert.match(
     conversationPanelSource,
@@ -389,7 +402,10 @@ test("page initializes the live api session without exposing demo scenario contr
   assert.doesNotMatch(workbenchPageSource, /onScenarioChange/);
   assert.doesNotMatch(topBarSource, /scenarios:/);
   assert.match(topBarSource, /onStartNewSession/);
-  assert.match(topBarSource, /重新开始测试/);
+  assert.match(topBarSource, /刷新/);
+  assert.doesNotMatch(topBarSource, /登录/);
+  assert.match(topBarSource, /PRODUCT_NAME/);
+  assert.doesNotMatch(topBarSource, /Product-update/);
   assert.doesNotMatch(topBarSource, /onScenarioChange/);
   assert.doesNotMatch(topBarSource, /scenario-chip/);
   assert.doesNotMatch(topBarSource, /Demo fixture/);
@@ -404,7 +420,7 @@ test("workbench can explicitly start a fresh live api session for end-to-end tes
   assert.match(storeSource, /messages: \[\]/);
   assert.match(storeSource, /generationTasks: \[\]/);
   assert.match(storeSource, /treeOperations: \[\]/);
-  assert.match(globalsSource, /\.topbar-reset/);
+  assert.match(globalsSource, /\.topbar-refresh/);
 });
 
 test("workbench only recovers when the backend session is actually missing", () => {

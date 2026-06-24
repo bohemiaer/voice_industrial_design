@@ -26,9 +26,15 @@ export interface BuildAppOptions {
   persistenceMode?: PersistenceMode;
   agentProvider?: AgentProvider;
   agentGateway?: AgentGateway;
+  authRequired?: boolean;
   authVerifier?: AuthVerifier;
   defaultAuthenticatedUser?: AuthenticatedUser;
 }
+
+const LOCAL_AUTH_USER: AuthenticatedUser = {
+  userId: "local-workbench-user",
+  email: null
+};
 
 export async function buildApp(
   options: BuildAppOptions = {}
@@ -40,7 +46,11 @@ export async function buildApp(
     agentProvider: options.agentProvider ?? loadedConfig.agentProvider
   };
   const persistenceMode = config.persistenceMode;
+  const authRequired = options.authRequired ?? false;
   const authVerifier = options.authVerifier ?? createSupabaseJwtVerifier(config);
+  const defaultAuthenticatedUser = authRequired
+    ? options.defaultAuthenticatedUser
+    : options.defaultAuthenticatedUser ?? LOCAL_AUTH_USER;
   const app = Fastify({
     logger: true
   });
@@ -67,10 +77,15 @@ export async function buildApp(
     }
 
     if (isProtectedApiRequest(request)) {
+      if (!authRequired) {
+        request.currentUser = defaultAuthenticatedUser;
+        return;
+      }
+
       await authenticateRequest({
         request,
         verifier: authVerifier,
-        defaultAuthenticatedUser: options.defaultAuthenticatedUser
+        defaultAuthenticatedUser
       });
     }
   });

@@ -18,7 +18,7 @@ importers:
         version: link:../../packages/shared
       drizzle-orm:
         specifier: ^0.44.2
-        version: 0.44.7(@types/pg@8.20.0)(pg@8.21.0)
+        version: 0.44.7(@opentelemetry/api@1.4.1)(@types/pg@8.20.0)(pg@8.21.0)
       fastify:
         specifier: ^5.3.3
         version: 5.8.5
@@ -44,6 +44,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@opentelemetry/api':
+        specifier: 1.4.1
+        version: 1.4.1
       '@supabase/supabase-js':
         specifier: ^2.108.2
         version: 2.108.2
@@ -58,7 +61,7 @@ importers:
         version: 3.10.1
       next:
         specifier: ^14.2.30
-        version: 14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 14.2.35(@opentelemetry/api@1.4.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -333,6 +336,10 @@ packages:
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
+
+  '@opentelemetry/api@1.4.1':
+    resolution: {integrity: sha512-O2yRJce1GOc6PAy3QxFM4NzFiWzvScDC1/5ihYBL6BUEVdq0XMWN01sppE+H6bBXbaFYipjwFLEWLg5PaSOThA==}
+    engines: {node: '>=8.0.0'}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -1097,6 +1104,8 @@ snapshots:
   '@next/swc-win32-x64-msvc@14.2.33':
     optional: true
 
+  '@opentelemetry/api@1.4.1': {}
+
   '@pinojs/redact@0.4.0': {}
 
   '@supabase/auth-js@2.108.2':
@@ -1279,8 +1288,9 @@ snapshots:
 
   dequal@2.0.3: {}
 
-  drizzle-orm@0.44.7(@types/pg@8.20.0)(pg@8.21.0):
+  drizzle-orm@0.44.7(@opentelemetry/api@1.4.1)(@types/pg@8.20.0)(pg@8.21.0):
     optionalDependencies:
+      '@opentelemetry/api': 1.4.1
       '@types/pg': 8.20.0
       pg: 8.21.0
 
@@ -1408,7 +1418,7 @@ snapshots:
 
   nanoid@3.3.12: {}
 
-  next@14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  next@14.2.35(@opentelemetry/api@1.4.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       '@next/env': 14.2.35
       '@swc/helpers': 0.5.5
@@ -1429,6 +1439,7 @@ snapshots:
       '@next/swc-win32-arm64-msvc': 14.2.33
       '@next/swc-win32-ia32-msvc': 14.2.33
       '@next/swc-win32-x64-msvc': 14.2.33
+      '@opentelemetry/api': 1.4.1
     transitivePeerDependencies:
       - '@babel/core'
       - babel-plugin-macros
