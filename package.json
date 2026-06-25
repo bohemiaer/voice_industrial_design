@@ -16,5 +16,10 @@
     "test:server": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && node --test --test-concurrency=1 tests/server/api.test.mjs tests/server/config.test.mjs tests/server/siliconflow-gateway.test.mjs",
     "test:workspace": "node --test tests/workspace/monorepo-scaffold.test.mjs",
     "test:shared": "node --test tests/workspace/shared-schema.test.mjs"
+  },
+  "devDependencies": {
+    "next": "^14.2.30",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }
