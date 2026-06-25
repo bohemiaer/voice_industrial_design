@@ -38,3 +38,4 @@ __pycache__/
 
 # Local reference prototype
 frontend-refer/
+.vercel
