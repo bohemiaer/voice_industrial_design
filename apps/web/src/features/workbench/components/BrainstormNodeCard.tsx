@@ -19,6 +19,14 @@ export type BrainstormNodeData = {
   isCurrentTarget: boolean;
   showRootPromptHints: boolean;
   onSelect: (nodeId: string) => void;
+  onSuggestedFollowupClick: (input: {
+    text: string;
+    source: {
+      nodeId: string;
+      publicNodeNumber: number;
+      displayName: string;
+    };
+  }) => void;
 };
 
 export type BrainstormFlowNode = Node<BrainstormNodeData, "brainstorm">;
@@ -34,18 +42,23 @@ export function BrainstormNodeCard({
     hasChildren,
     isCurrentTarget,
     showRootPromptHints,
-    onSelect
+    onSelect,
+    onSuggestedFollowupClick
   } = data;
   const isRoot = !hasParent;
-  const nodeTag = hasParent ? `NODE ${node.publicNodeNumber}` : "ROOT";
+  const nodeTag = hasParent ? `节点 ${node.publicNodeNumber}` : "ROOT";
   const hasRenderedImage = Boolean(node.imageUrl) && node.status !== "generating";
+  const suggestedFollowups = !isRoot && !hasChildren && node.status !== "generating"
+    ? node.suggestedFollowups.slice(0, 3)
+    : [];
 
   return (
     <div
       className={[
         "node-shell",
         selected ? "is-selected" : "",
-        isCurrentTarget ? "is-target" : ""
+        isCurrentTarget ? "is-target" : "",
+        suggestedFollowups.length > 0 ? "has-suggestion-tree" : ""
       ]
         .filter(Boolean)
         .join(" ")}
@@ -109,7 +122,7 @@ export function BrainstormNodeCard({
             </div>
           ) : (
             <div className="node-card__requirement">
-              <span>{showRootPromptHints ? "从语音开始描述" : "已确认设计需求"}</span>
+              {!showRootPromptHints ? <span>已确认设计需求</span> : null}
               <p className="node-card__requirement-text">{node.intentSummary}</p>
               {showRootPromptHints ? (
                 <div className="node-card__empty-prompts">
@@ -134,6 +147,48 @@ export function BrainstormNodeCard({
             <span className="port-core" />
           </span>
         </>
+      ) : null}
+
+      {suggestedFollowups.length > 0 ? (
+        <div
+          className="node-suggestion-list node-suggestion-tree nodrag nopan"
+          aria-label={`${node.displayName} 推荐发散方向`}
+        >
+          <svg
+            className="node-suggestion-bezier-lines"
+            viewBox="0 0 410 76"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="M205 2 C205 30 69 30 69 74" strokeDasharray="6 7" />
+            <path d="M205 2 C205 30 205 40 205 74" strokeDasharray="6 7" />
+            <path d="M205 2 C205 30 341 30 341 74" strokeDasharray="6 7" />
+          </svg>
+          {suggestedFollowups.map((prompt, index) => (
+            <div
+              key={prompt}
+              className={`node-suggestion-branch node-suggestion-branch-${index + 1}`}
+            >
+              <button
+                type="button"
+                className="node-suggestion-chip node-suggestion-card nodrag nopan"
+                onClick={() => {
+                  onSelect(node.id);
+                  onSuggestedFollowupClick({
+                    text: prompt,
+                    source: {
+                      nodeId: node.id,
+                      publicNodeNumber: node.publicNodeNumber,
+                      displayName: node.displayName
+                    }
+                  });
+                }}
+              >
+                {prompt}
+              </button>
+            </div>
+          ))}
+        </div>
       ) : null}
 
       {selected && node.status !== "generating" ? (

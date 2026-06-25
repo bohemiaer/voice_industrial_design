@@ -1,6 +1,10 @@
 import type {
   BrainstormAssistantInput,
   BrainstormAssistantOutput,
+  ChatAssistantInput,
+  ChatAssistantOutput,
+  MemorySummarizerInput,
+  MemorySummarizerOutput,
   SketchGenerationInput,
   SketchGenerationOutput
 } from "@voice-industrial-design/shared";
@@ -20,6 +24,10 @@ export interface AgentGateway {
   runBrainstormAssistant(
     input: BrainstormAssistantInput
   ): Promise<BrainstormAssistantOutput>;
+  runChatAssistant(input: ChatAssistantInput): Promise<ChatAssistantOutput>;
+  runMemorySummarizer(
+    input: MemorySummarizerInput
+  ): Promise<MemorySummarizerOutput>;
   generateSketch(input: SketchGenerationInput): Promise<SketchGenerationOutput>;
 }
 

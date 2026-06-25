@@ -30,6 +30,9 @@ const connectorPalette: Record<NodePalette, string> = {
   mist: "#8eb2ff",
   ghost: "#d5dbe4"
 };
+const nodeCardWidth = 290;
+const suggestionTreeWidth = 410;
+const suggestionTreeOverhang = (suggestionTreeWidth - nodeCardWidth) / 2;
 
 const toolbarItems = [
   { label: "全局显示", icon: "selectionCursor" },
@@ -157,6 +160,7 @@ export function CanvasWorkspace() {
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
   const selectNode = useWorkbenchStore((state) => state.selectNode);
+  const setInputDraft = useWorkbenchStore((state) => state.setInputDraft);
   const requestUndo = useWorkbenchStore((state) => state.requestUndo);
   const requestRedo = useWorkbenchStore((state) => state.requestRedo);
   const { fitBounds, fitView, getViewport, setViewport, zoomIn, zoomOut } = useReactFlow();
@@ -206,6 +210,11 @@ export function CanvasWorkspace() {
       formLanguage: [],
       userNeedResponse: [],
       inspirationHints: [],
+      suggestedFollowups: [
+        "先发散三个造型方向",
+        "更强调使用场景",
+        "补充材质和品牌气质"
+      ],
       imageUrl: null,
       status: "ready",
       createdAt: serverState.session.createdAt,
@@ -253,15 +262,26 @@ export function CanvasWorkspace() {
         x: 80,
         y: 70 + node.depth * 440
       };
+      const hasSuggestedFollowups =
+        Boolean(node.parentNodeId) &&
+        node.status !== "generating" &&
+        node.suggestedFollowups.length > 0;
       const meta = {
         ...createNodeUiMeta(node, index),
         position: layoutPosition
       };
+      const flowPosition = hasSuggestedFollowups
+        ? {
+            ...layoutPosition,
+            x: layoutPosition.x - suggestionTreeOverhang
+          }
+        : layoutPosition;
 
       return {
         id: node.id,
         type: "brainstorm",
-        position: layoutPosition,
+        position: flowPosition,
+        style: hasSuggestedFollowups ? { width: suggestionTreeWidth } : undefined,
         sourcePosition: Position.Bottom,
         targetPosition: Position.Top,
         selected: uiState.currentNodeId === node.id,
@@ -272,13 +292,15 @@ export function CanvasWorkspace() {
           hasChildren: (childMap[node.id] ?? []).length > 0,
           isCurrentTarget: uiState.currentNodeId === node.id,
           showRootPromptHints: node.id === serverState.session.id && !hasConfirmedRootIntent,
-          onSelect: selectNode
+          onSelect: selectNode,
+          onSuggestedFollowupClick: setInputDraft
         }
       };
     });
   }, [
     childMap,
     selectNode,
+    setInputDraft,
     serverState.session.id,
     uiState.currentNodeId,
     hasConfirmedRootIntent,
@@ -305,14 +327,15 @@ export function CanvasWorkspace() {
     const expandedWidth = Math.max(bounds.width * 2, 720);
     const expandedHeight = Math.max(
       expandedWidth / Math.max(viewportAspectRatio, 1),
-      bounds.height * 1.12,
-      320
+      bounds.height + 280,
+      520
     );
+    const topPadding = (expandedHeight - bounds.height) * 0.28;
 
     void fitBounds(
       {
         x: bounds.x - (expandedWidth - bounds.width) / 2,
-        y: bounds.y - (expandedHeight - bounds.height) / 2,
+        y: bounds.y - topPadding,
         width: expandedWidth,
         height: expandedHeight
       },
@@ -457,7 +480,7 @@ export function CanvasWorkspace() {
             );
           } catch (error) {
             failures.push(
-              `NODE ${node.publicNodeNumber} ${node.displayName}: ${
+              `节点 ${node.publicNodeNumber} ${node.displayName}: ${
                 error instanceof Error ? error.message : "下载失败"
               }`
             );

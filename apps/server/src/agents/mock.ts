@@ -1,9 +1,15 @@
 import {
   BrainstormAssistantOutputSchema,
+  ChatAssistantOutputSchema,
+  MemorySummarizerOutputSchema,
   SketchGenerationOutputSchema,
   type BrainstormActionType,
   type BrainstormAssistantInput,
   type BrainstormAssistantOutput,
+  type ChatAssistantInput,
+  type ChatAssistantOutput,
+  type MemorySummarizerInput,
+  type MemorySummarizerOutput,
   type SketchGenerationInput,
   type SketchGenerationOutput,
   type VisualDirectionBrief
@@ -22,6 +28,7 @@ const MOCK_AXES = [
     formLanguage: ["薄片化", "悬浮底座", "柔和圆角"],
     userNeedResponse: ["降低桌面视觉压迫", "适合长时间办公环境"],
     inspirationHints: ["悬浮屏幕支架", "轻薄消费电子"],
+    suggestedFollowups: ["强化悬浮底座比例", "让机身再薄一点", "探索更低压迫的桌面姿态"],
     variationAxis: "体量轻薄化",
     promptIntent: "早期工业设计草图，突出轻薄悬浮的办公产品方向"
   },
@@ -31,6 +38,7 @@ const MOCK_AXES = [
     formLanguage: ["连续曲面", "包裹外壳", "低对比接缝"],
     userNeedResponse: ["提供更温和的使用感", "减少工具感"],
     inspirationHints: ["鹅卵石", "软质家居用品"],
+    suggestedFollowups: ["换成更温和的家居 CMF", "强化连续曲面包裹", "让边缘更亲和柔软"],
     variationAxis: "外壳包裹方式",
     promptIntent: "早期工业设计草图，突出柔和包裹和亲和曲面"
   },
@@ -40,6 +48,7 @@ const MOCK_AXES = [
     formLanguage: ["分层模块", "明确分割线", "规则几何"],
     userNeedResponse: ["表达可靠和可维护", "便于理解功能分区"],
     inspirationHints: ["模块化音箱", "专业办公设备"],
+    suggestedFollowups: ["细化模块分区比例", "强化专业设备秩序", "探索更清晰的功能边界"],
     variationAxis: "模块分区逻辑",
     promptIntent: "早期工业设计草图，突出模块化分区和清晰秩序"
   },
@@ -49,6 +58,7 @@ const MOCK_AXES = [
     formLanguage: ["开放格栅", "渐变孔阵", "有机轮廓"],
     userNeedResponse: ["营造放松感", "强调空气流动和轻松氛围"],
     inspirationHints: ["叶脉", "自然通风格栅"],
+    suggestedFollowups: ["放大自然通风格栅", "弱化机械感更轻松", "探索更有机的侧面轮廓"],
     variationAxis: "通透开孔语言",
     promptIntent: "早期工业设计草图，突出自然通透和呼吸感"
   }
@@ -80,10 +90,32 @@ export class MockAgentGateway implements AgentGateway {
       branchCount,
       designIntentSummary: `围绕“${input.transcriptText}”收束本轮设计目标，并保持与初始需求一致。`,
       assistantReply: `我理解你的需求是：${input.transcriptText}。现在我会围绕 ${selectedLabel} ${actionSummary}。`,
-      confirmationRequired: false,
-      rewrittenIntentForConfirmation: null,
       promptHints: ["早期工业设计草图", "差异化造型语言", "白底线稿"],
       directionBriefs
+    });
+  }
+
+  async runChatAssistant(
+    input: ChatAssistantInput
+  ): Promise<ChatAssistantOutput> {
+    const target = input.selectedNode
+      ? `当前节点“${input.selectedNode.displayName}”的方向是：${input.selectedNode.intentSummary}`
+      : `当前会话目标是：${input.sessionGoal}`;
+
+    return ChatAssistantOutputSchema.parse({
+      assistantReply: `${target}。这次只是回答问题，不会改变画布。`
+    });
+  }
+
+  async runMemorySummarizer(
+    input: MemorySummarizerInput
+  ): Promise<MemorySummarizerOutput> {
+    return MemorySummarizerOutputSchema.parse({
+      stablePreferences: input.previousMemory?.stablePreferences ?? [],
+      activeConstraints: input.previousMemory?.activeConstraints ?? [],
+      rejectedDirections: input.previousMemory?.rejectedDirections ?? [],
+      openQuestions: input.previousMemory?.openQuestions ?? [],
+      shortSummary: "近期对话已压缩，暂无新增稳定偏好。"
     });
   }
 
@@ -146,6 +178,7 @@ function createBrief(index: number, targetParentNodeId: string): VisualDirection
     formLanguage: [...axis.formLanguage],
     userNeedResponse: [...axis.userNeedResponse],
     inspirationHints: [...axis.inspirationHints],
+    suggestedFollowups: [...axis.suggestedFollowups],
     variationAxis: axis.variationAxis,
     promptIntent: axis.promptIntent
   };

@@ -8,7 +8,7 @@ import type { AppServices } from "../repositories/types.js";
 export async function registerTaskRoutes(
   app: FastifyInstance,
   services: AppServices,
-  orchestrator: Orchestrator
+  _orchestrator: Orchestrator
 ): Promise<void> {
   app.get("/api/tasks/:taskId", async (request) => {
     const currentUser = requireAuth(request);
@@ -34,9 +34,11 @@ export async function registerTaskRoutes(
     }
 
     await assertTaskOwner(existingTask.sessionId, currentUser, services);
-    const task = await orchestrator.confirmTask({ taskId });
-
-    return { task };
+    throw new ApiError(
+      410,
+      "CONFIRMATION_FLOW_REMOVED",
+      "v1 uses direct execution and does not support confirmation decisions."
+    );
   });
 
   app.post("/api/tasks/:taskId/cancel", async (request) => {
@@ -49,9 +51,11 @@ export async function registerTaskRoutes(
     }
 
     await assertTaskOwner(existingTask.sessionId, currentUser, services);
-    const task = await orchestrator.cancelTask({ taskId });
-
-    return { task };
+    throw new ApiError(
+      410,
+      "CONFIRMATION_FLOW_REMOVED",
+      "v1 uses direct execution and does not support confirmation decisions."
+    );
   });
 }
 

@@ -44,6 +44,7 @@ export const treeNodesTable = pgTable("tree_nodes", {
   formLanguage: jsonb("form_language").$type<string[]>().notNull(),
   userNeedResponse: jsonb("user_need_response").$type<string[]>().notNull(),
   inspirationHints: jsonb("inspiration_hints").$type<string[]>().notNull(),
+  suggestedFollowups: jsonb("suggested_followups").$type<string[]>().notNull(),
   imageUrl: text("image_url"),
   status: text("status").notNull(),
   supersededAt: timestamp("superseded_at", { withTimezone: true }),

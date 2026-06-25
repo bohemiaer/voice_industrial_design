@@ -18,6 +18,7 @@ import {
 } from "./api";
 import { DEFAULT_ROOT_REQUIREMENT, DEFAULT_SESSION_TITLE } from "./copy";
 import type {
+  InputDraftSource,
   RecordingState,
   WorkbenchServerState,
   WorkbenchUiState
@@ -29,6 +30,7 @@ type WorkbenchStore = {
   initializeApiSession: () => Promise<void>;
   startNewApiSession: () => Promise<void>;
   selectNode: (nodeId: string) => void;
+  setInputDraft: (input: { text: string; source: InputDraftSource }) => void;
   toggleSystemMessage: (messageId: string) => void;
   setRecordingState: (recordingState: RecordingState) => void;
   cycleRecordingState: () => void;
@@ -72,6 +74,9 @@ const initialState = {
     recordingState: "idle" as const,
     liveTranscriptText: null,
     latestGeneratedNodeIds: [],
+    inputDraftText: "",
+    inputDraftSource: null,
+    inputDraftRevision: 0,
     lastActionSummary: "正在连接真实 API。",
     isThinking: false,
     canRedo: false
@@ -322,6 +327,9 @@ function createFreshApiSessionState(
       recordingState: "idle",
       liveTranscriptText: null,
       latestGeneratedNodeIds: [],
+      inputDraftText: "",
+      inputDraftSource: null,
+      inputDraftRevision: 0,
       lastActionSummary: "请用语音描述产品、功能、人群、关键需求和风格。",
       isThinking: false,
       canRedo: false
@@ -435,6 +443,16 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       uiState: {
         ...state.uiState,
         currentNodeId: nodeId
+      }
+    }));
+  },
+  setInputDraft: (input) => {
+    set((state) => ({
+      uiState: {
+        ...state.uiState,
+        inputDraftText: input.text,
+        inputDraftSource: input.source,
+        inputDraftRevision: state.uiState.inputDraftRevision + 1
       }
     }));
   },

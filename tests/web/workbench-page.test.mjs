@@ -258,7 +258,9 @@ test("canvas lays out generated nodes as a vertical tree without obsolete toolba
   assert.match(canvasWorkspaceSource, /viewportAspectRatio/);
   assert.match(canvasWorkspaceSource, /expandedWidth = Math\.max\(bounds\.width \* 2, 720\)/);
   assert.match(canvasWorkspaceSource, /expandedHeight = Math\.max\(/);
-  assert.match(canvasWorkspaceSource, /y: bounds\.y - \(expandedHeight - bounds\.height\) \/ 2/);
+  assert.match(canvasWorkspaceSource, /bounds\.height \+ 280/);
+  assert.match(canvasWorkspaceSource, /const topPadding = \(expandedHeight - bounds\.height\) \* 0\.28/);
+  assert.match(canvasWorkspaceSource, /y: bounds\.y - topPadding/);
   assert.match(canvasWorkspaceSource, /const rootNode/);
   assert.match(canvasWorkspaceSource, /resolveRootNodeIntentSummary/);
   assert.match(canvasWorkspaceSource, /findFirstUserTranscript/);
@@ -276,6 +278,9 @@ test("canvas lays out generated nodes as a vertical tree without obsolete toolba
   assert.match(nodeCardSource, /node-card__requirement-text/);
   assert.match(nodeCardSource, /node\.intentSummary/);
   assert.match(nodeCardSource, /showRootPromptHints/);
+  assert.match(nodeCardSource, /`节点 \$\{node\.publicNodeNumber\}`/);
+  assert.doesNotMatch(nodeCardSource, /`NODE \$\{node\.publicNodeNumber\}`/);
+  assert.doesNotMatch(nodeCardSource, /从语音开始描述/);
   assert.match(nodeCardSource, /描述产品类型/);
   assert.match(nodeCardSource, /目标人群/);
   assert.match(nodeCardSource, /关键需求/);
@@ -316,6 +321,8 @@ test("conversation panel keeps only the message stream and recording input", () 
   assert.match(conversationPanelSource, /<details className="system-log" open=\{isExpanded\}>/);
   assert.match(conversationPanelSource, /<RecordingBar/);
   assert.match(conversationPanelSource, /hasConfirmedRootIntent/);
+  assert.match(conversationPanelSource, /已选中 <strong>节点 \{selectedNode\.publicNodeNumber\}<\/strong>/);
+  assert.doesNotMatch(conversationPanelSource, /<strong>NODE \{selectedNode\.publicNodeNumber\}<\/strong>/);
   assert.match(conversationPanelSource, /useEffect/);
   assert.match(conversationPanelSource, /useRef/);
   assert.match(conversationPanelSource, /scrollTop = scrollRegionRef\.current\.scrollHeight/);
@@ -324,11 +331,21 @@ test("conversation panel keeps only the message stream and recording input", () 
   assert.match(conversationPanelSource, /thinkingMessage/);
   assert.match(conversationPanelSource, /UNTITLED_PROJECT_NAME/);
   assert.match(conversationPanelSource, /sidebar-title__edit/);
-  assert.match(conversationPanelSource, /selectedNode\s*\?\s*createNodeUiMeta/);
+  assert.match(conversationPanelSource, /selectedNode\s*\?\s*followupPromptSuggestions/);
+  assert.match(conversationPanelSource, /const followupPromptSuggestions = \[/);
+  assert.match(conversationPanelSource, /"刷新这一轮的输出"/);
+  assert.match(conversationPanelSource, /`基于节点 \$\{targetPromptNodeNumber\} 继续进行发散`/);
+  assert.match(conversationPanelSource, /"撤回\/重做之前的操作"/);
+  assert.match(conversationPanelSource, /const inputPlaceholder = firstUserTranscript/);
+  assert.match(conversationPanelSource, /"描述您的下一步需求"/);
+  assert.match(conversationPanelSource, /"请根据根节点的提示描述你的产品开始设计吧！"/);
   assert.match(
     conversationPanelSource,
-    /:\s*hasConfirmedRootIntent\s*\?\s*\[\]\s*:\s*rootPromptSuggestions/s
+    /:\s*hasConfirmedRootIntent\s*\|\|\s*firstUserTranscript\s*\?\s*followupPromptSuggestions\s*:\s*rootPromptSuggestions/s
   );
+  assert.match(conversationPanelSource, /inputPlaceholder=\{inputPlaceholder\}/);
+  assert.doesNotMatch(conversationPanelSource, /onPromptClick/);
+  assert.doesNotMatch(conversationPanelSource, /requestUndo/);
   assert.doesNotMatch(conversationPanelSource, /<ConfirmationCard/);
   assert.doesNotMatch(conversationPanelSource, /<CurrentTargetBanner/);
   assert.doesNotMatch(conversationPanelSource, /<IntentStatusCard/);
@@ -480,11 +497,77 @@ test("frontend shows the user bubble immediately and refreshes the canvas from t
 test("frontend supports multiline text input without recycling the last transcript as placeholder", () => {
   assert.match(recordingBarSource, /<textarea/);
   assert.match(recordingBarSource, /setTextInput\(""\)/);
-  assert.match(recordingBarSource, /const inputPlaceholder =/);
+  assert.match(recordingBarSource, /inputPlaceholder: string/);
+  assert.match(recordingBarSource, /placeholder=\{inputPlaceholder\}/);
   assert.doesNotMatch(recordingBarSource, /placeholder=\{copy\.hint\}/);
   assert.match(globalsSource, /\.input-panel__text-input \{/);
   assert.match(globalsSource, /resize: none/);
   assert.match(globalsSource, /overflow-y: hidden/);
+});
+
+test("node suggested followups fill the input draft without auto-submitting", () => {
+  assert.match(typesSource, /inputDraftText: string/);
+  assert.match(typesSource, /type InputDraftSource =/);
+  assert.match(typesSource, /inputDraftSource: InputDraftSource \| null/);
+  assert.match(typesSource, /inputDraftRevision: number/);
+  assert.match(storeSource, /setInputDraft: \(input: \{ text: string; source: InputDraftSource \}\) => void/);
+  assert.match(storeSource, /inputDraftSource: input\.source/);
+  assert.match(storeSource, /inputDraftRevision: state\.uiState\.inputDraftRevision \+ 1/);
+  assert.match(canvasWorkspaceSource, /setInputDraft/);
+  assert.match(canvasWorkspaceSource, /suggestionTreeWidth/);
+  assert.match(canvasWorkspaceSource, /suggestionTreeOverhang/);
+  assert.match(canvasWorkspaceSource, /style: hasSuggestedFollowups \? \{ width: suggestionTreeWidth \} : undefined/);
+  assert.match(nodeCardSource, /node\.suggestedFollowups/);
+  assert.match(nodeCardSource, /!hasChildren/);
+  assert.match(nodeCardSource, /nodeId: node\.id/);
+  assert.match(nodeCardSource, /publicNodeNumber: node\.publicNodeNumber/);
+  assert.match(nodeCardSource, /displayName: node\.displayName/);
+  assert.match(nodeCardSource, /has-suggestion-tree/);
+  assert.match(nodeCardSource, /node-suggestion-chip/);
+  assert.match(nodeCardSource, /onSuggestedFollowupClick\(\{\s*text: prompt,\s*source:/s);
+  assert.doesNotMatch(nodeCardSource, /submitVoiceTurn\(prompt\)/);
+  assert.match(recordingBarSource, /draftRevision/);
+  assert.match(recordingBarSource, /draftSource/);
+  assert.match(recordingBarSource, /textAreaRef\.current\?\.focus\(\)/);
+  assert.match(globalsSource, /\.node-suggestion-list/);
+  assert.match(globalsSource, /\.node-suggestion-chip/);
+});
+
+test("node suggested followups render as dashed concept-tree branches and persist as input chips", () => {
+  assert.match(nodeCardSource, /node-suggestion-tree/);
+  assert.match(nodeCardSource, /node-suggestion-tree nodrag nopan/);
+  assert.match(nodeCardSource, /node-suggestion-bezier-lines/);
+  assert.match(nodeCardSource, /<path/);
+  assert.match(nodeCardSource, /strokeDasharray="6 7"/);
+  assert.match(nodeCardSource, /node-suggestion-branch/);
+  assert.match(nodeCardSource, /node-suggestion-card/);
+  assert.match(nodeCardSource, /node-suggestion-card nodrag nopan/);
+  assert.match(recordingBarSource, /input-draft-chip/);
+  assert.match(recordingBarSource, /节点 \{draftChip\.source\.publicNodeNumber\}/);
+  assert.doesNotMatch(recordingBarSource, /NODE \{draftChip\.source\.publicNodeNumber\}/);
+  assert.match(recordingBarSource, /data-source-node-id/);
+  assert.match(recordingBarSource, /data-source-public-node-number/);
+  assert.match(recordingBarSource, /data-source-display-name/);
+  assert.match(recordingBarSource, /submitText = \[draftChip\?\.text, textInput\]/);
+  assert.match(recordingBarSource, /event\.key === "Backspace"/);
+  assert.match(recordingBarSource, /setDraftChip\(null\)/);
+  assert.match(recordingBarSource, /aria-label="删除输入气泡"/);
+  assert.doesNotMatch(recordingBarSource, /input-panel--bubble-in/);
+  assert.doesNotMatch(recordingBarSource, /draftBubbleText/);
+  assert.match(globalsSource, /\.node-suggestion-tree/);
+  assert.match(globalsSource, /\.node-suggestion-bezier-lines/);
+  assert.match(globalsSource, /\.node-suggestion-bezier-lines path/);
+  assert.match(globalsSource, /\.react-flow__node-brainstorm \.node-suggestion-card/);
+  assert.match(globalsSource, /pointer-events: auto/);
+  assert.match(globalsSource, /\.node-suggestion-branch/);
+  assert.match(globalsSource, /\.node-suggestion-card/);
+  assert.match(globalsSource, /\.node-suggestion-chip\s*\{[^}]*border-style: dashed/s);
+  assert.match(globalsSource, /\.node-suggestion-chip\s*\{[^}]*box-shadow: none/s);
+  assert.match(globalsSource, /\.node-suggestion-chip:hover\s*\{[^}]*box-shadow: none/s);
+  assert.match(globalsSource, /\.node-card__requirement \.node-card__requirement-text\s*\{[^}]*margin-bottom: 18px/s);
+  assert.match(globalsSource, /\.input-draft-chip/);
+  assert.doesNotMatch(globalsSource, /\.input-panel--bubble-in/);
+  assert.doesNotMatch(globalsSource, /@keyframes draftBubbleIn/);
 });
 
 test("workbench avoids full session reloads when a lighter refresh is enough", () => {
@@ -557,7 +640,8 @@ test("live workbench components derive node metadata from api data instead of fi
   assert.doesNotMatch(conversationPanelSource, /fixture\.nodeUiMeta/);
   assert.doesNotMatch(conversationPanelSource, /messageDecorations/);
   assert.match(conversationPanelSource, /selectedNode \? \(/);
-  assert.match(conversationPanelSource, /createNodeUiMeta\(selectedNode/);
+  assert.match(conversationPanelSource, /targetPromptNodeNumber/);
+  assert.match(conversationPanelSource, /followupPromptSuggestions/);
 });
 
 test("todo reflects the first api integration slice", () => {
@@ -588,8 +672,12 @@ test("workbench uploads real browser recordings through the api client", () => {
   assert.match(recordingBarSource, /event\.code === "Space"/);
   assert.match(recordingBarSource, /window\.addEventListener\("blur", handleWindowBlur\)/);
   assert.match(recordingBarSource, /isEditableTarget\(document\.activeElement\)/);
+  assert.match(recordingBarSource, /handlePromptSelect/);
+  assert.match(recordingBarSource, /setTextInput\(prompt\)/);
+  assert.match(recordingBarSource, /textAreaRef\.current\?\.focus\(\)/);
+  assert.doesNotMatch(recordingBarSource, /onPromptClick/);
   assert.match(recordingBarSource, /按住空格正在录音/);
-  assert.match(recordingBarSource, /正在转文字/);
+  assert.doesNotMatch(recordingBarSource, /正在转文字/);
   assert.match(recordingBarSource, /input-panel--recording/);
   assert.match(recordingBarSource, /mic-button--recording/);
   assert.match(recordingBarSource, /liveTranscriptText/);
@@ -597,11 +685,18 @@ test("workbench uploads real browser recordings through the api client", () => {
   assert.match(recordingBarSource, /onTextSubmit/);
   assert.match(recordingBarSource, /useState/);
   assert.match(recordingBarSource, /value=\{textInput\}/);
-  assert.match(recordingBarSource, /placeholder=/);
+  assert.match(recordingBarSource, /placeholder=\{inputPlaceholder\}/);
   assert.match(recordingBarSource, /handleTextSubmit/);
   assert.match(recordingBarSource, /event\.key === "Enter"/);
   assert.match(recordingBarSource, /submit-button/);
   assert.match(globalsSource, /\.input-panel--recording/);
+  assert.match(globalsSource, /\.input-panel__field\s*\{[^}]*padding: 12px 18px 12px/s);
+  assert.match(globalsSource, /\.input-draft-chip\s*\{[^}]*margin-top: 0/s);
+  assert.match(globalsSource, /\.input-draft-chip\s*\{[^}]*box-shadow: none/s);
+  assert.match(globalsSource, /\.input-panel__text-input\s*\{[^}]*margin-top: 4px/s);
+  assert.match(globalsSource, /\.prompt-suggestions\s*\{[^}]*flex-direction: column/s);
+  assert.match(globalsSource, /\.prompt-suggestions\s*\{[^}]*align-items: flex-start/s);
+  assert.match(globalsSource, /\.prompt-suggestions\s*\{[^}]*overflow: visible/s);
   assert.match(globalsSource, /@keyframes recordingHalo/);
   assert.match(globalsSource, /\.mic-button--recording/);
 });

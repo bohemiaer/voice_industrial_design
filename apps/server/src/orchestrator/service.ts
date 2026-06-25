@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import {
   BrainstormAssistantOutputSchema,
+  MemorySummarizerOutputSchema,
   type BrainstormAssistantInput,
   type BrainstormAssistantOutput,
+  type ChatAssistantInput,
   type GenerationTask,
+  type MemorySummarizerOutput,
   type Message,
   type Session,
   type SketchGenerationInput,
@@ -20,6 +23,8 @@ import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 import type { AppServices } from "../repositories/types.js";
 
+const MEMORY_TRIGGER_TURN_COUNT = 6;
+
 export interface ProcessVoiceTurnInput {
   sessionId: string;
   transcriptText?: string;
@@ -33,10 +38,6 @@ export interface ProcessVoiceTurnResult {
   operation: TreeOperation | null;
 }
 
-export interface TaskDecisionInput {
-  taskId: string;
-}
-
 export interface SessionOperationInput {
   sessionId: string;
   operationId?: string | null;
@@ -48,8 +49,6 @@ export interface Orchestrator {
   processVoiceTurn(input: ProcessVoiceTurnInput): Promise<ProcessVoiceTurnResult>;
   undoSession(input: SessionOperationInput): Promise<TreeOperation>;
   redoSession(input: SessionOperationInput): Promise<TreeOperation>;
-  confirmTask(input: TaskDecisionInput): Promise<GenerationTask>;
-  cancelTask(input: TaskDecisionInput): Promise<GenerationTask>;
 }
 
 export function createOrchestrator(
@@ -98,6 +97,9 @@ export function createOrchestrator(
       const sessionMessages = await services.repositories.messages.listBySessionId(
         input.sessionId
       );
+      const latestMemory =
+        await services.repositories.messages.getLatestMemorySummary(session.id);
+      const conversationMemory = parseMemorySummaryMessage(latestMemory);
       const turnIntent = resolveTurnIntent(transcript.transcriptText);
 
       if (turnIntent === "delete") {
@@ -166,6 +168,22 @@ export function createOrchestrator(
         input.targetNodeId,
         transcript.transcriptText
       );
+      const chatType = resolveChatType(transcript.transcriptText);
+
+      if (chatType) {
+        return executeChatTurn({
+          services,
+          agentGateway,
+          session,
+          transcriptText: transcript.transcriptText,
+          chatType,
+          targetNode: targetContext.targetNode,
+          treeNodes,
+          sessionMessages,
+          conversationMemory
+        });
+      }
+
       const assistantInput = buildBrainstormInput({
         session,
         transcriptText: transcript.transcriptText,
@@ -173,16 +191,25 @@ export function createOrchestrator(
         selectedNodeId: targetContext.selectedNodeId,
         sessionMessages,
         treeNodes,
-        config
+        config,
+        conversationMemory,
+        actionType: turnIntent
       });
       const assistantOutput = BrainstormAssistantOutputSchema.parse(
         normalizeAssistantOutput(
           await agentGateway.runBrainstormAssistant(assistantInput),
           transcript.transcriptText,
-          config
+          config,
+          assistantInput.constraints.defaultBranchCount
         )
       );
-      validateAssistantOutput(assistantOutput, targetContext.selectedNodeId, config);
+      validateAssistantOutput({
+        output: assistantOutput,
+        selectedNodeId: targetContext.selectedNodeId,
+        config,
+        transcriptText: transcript.transcriptText,
+        defaultBranchCount: assistantInput.constraints.defaultBranchCount
+      });
 
       const task = await services.repositories.generationTasks.create({
         sessionId: session.id,
@@ -191,9 +218,7 @@ export function createOrchestrator(
         branchCount: assistantOutput.branchCount,
         transcriptText: transcript.transcriptText,
         designIntentSummary: assistantOutput.designIntentSummary,
-        assistantReply: assistantOutput.assistantReply,
-        confirmationRequired: false,
-        rewrittenIntentForConfirmation: null
+        assistantReply: assistantOutput.assistantReply
       });
 
       const userTranscriptMessage = await createUserTranscriptMessage(
@@ -209,6 +234,18 @@ export function createOrchestrator(
         task.id,
         assistantOutput.assistantReply
       );
+
+      await maybeCreateConversationMemory({
+        services,
+        agentGateway,
+        session,
+        targetNode: targetContext.targetNode,
+        messages: [
+          ...sessionMessages,
+          userTranscriptMessage,
+          assistantSummaryMessage
+        ]
+      });
 
       const branchTasks = [];
       for (const [index, brief] of assistantOutput.directionBriefs.entries()) {
@@ -264,73 +301,71 @@ export function createOrchestrator(
         services,
         sessionId: input.sessionId
       });
-    },
-
-    async confirmTask(input: TaskDecisionInput): Promise<GenerationTask> {
-      const pendingTask =
-        await services.repositories.generationTasks.getById(input.taskId);
-
-      if (!pendingTask) {
-        throw new ApiError(404, "TASK_NOT_FOUND", "Task not found");
-      }
-
-      const task = await services.repositories.generationTasks.updateConfirmation({
-        taskId: input.taskId,
-        decision: "confirm"
-      });
-
-      if (!task) {
-        throw new ApiError(404, "TASK_NOT_FOUND", "Task not found");
-      }
-
-      const session = await services.repositories.sessions.getById(task.sessionId);
-
-      if (!session) {
-        throw new ApiError(404, "SESSION_NOT_FOUND", "Session not found");
-      }
-
-      const treeNodes = await services.repositories.treeNodes.listBySessionId(
-        session.id
-      );
-      const sessionMessages = await services.repositories.messages.listBySessionId(
-        session.id
-      );
-      const targetNode =
-        treeNodes.find((node) => node.id === task.targetNodeId) ?? null;
-
-      if (task.targetNodeId !== session.id && !targetNode) {
-        throw new ApiError(404, "TARGET_NODE_NOT_FOUND", "Target node not found");
-      }
-
-      return persistGeneratedBranches({
-        services,
-        agentGateway,
-        config,
-        session,
-        task: {
-          ...task,
-          branchTasks: pendingTask.branchTasks
-        },
-        targetNode,
-        treeNodes,
-        conversationHistory: buildConversationHistory(sessionMessages),
-        actionType: task.actionType,
-        briefs: pendingTask.branchTasks.map((branchTask) => branchTask.brief)
-      });
-    },
-
-    async cancelTask(input: TaskDecisionInput): Promise<GenerationTask> {
-      const task = await services.repositories.generationTasks.updateConfirmation({
-        taskId: input.taskId,
-        decision: "cancel"
-      });
-
-      if (!task) {
-        throw new ApiError(404, "TASK_NOT_FOUND", "Task not found");
-      }
-
-      return task;
     }
+  };
+}
+
+async function executeChatTurn(input: {
+  services: AppServices;
+  agentGateway: AgentGateway;
+  session: Session;
+  transcriptText: string;
+  chatType: ChatAssistantInput["chatType"];
+  targetNode: TreeNode | null;
+  treeNodes: TreeNode[];
+  sessionMessages: Message[];
+  conversationMemory: MemorySummarizerOutput | undefined;
+}): Promise<ProcessVoiceTurnResult> {
+  const userTranscriptMessage = await createUserTranscriptMessage(
+    input.services,
+    input.session.id,
+    null,
+    input.transcriptText
+  );
+
+  const chatOutput = await input.agentGateway.runChatAssistant({
+    userIntentText: input.transcriptText,
+    chatType: input.chatType,
+    sessionGoal: input.session.goal,
+    conversationMemory: input.conversationMemory,
+    conversationHistory: buildConversationHistory(input.sessionMessages),
+    selectedNode: input.targetNode
+      ? {
+          nodeId: input.targetNode.id,
+          displayName: input.targetNode.displayName,
+          intentSummary: input.targetNode.intentSummary
+        }
+      : undefined,
+    visibleNodeSummaries: input.treeNodes.slice(-12).map((node) => ({
+      nodeId: node.id,
+      displayName: node.displayName,
+      intentSummary: node.intentSummary
+    }))
+  });
+
+  const assistantMessage = await input.services.repositories.messages.create({
+    sessionId: input.session.id,
+    taskId: null,
+    role: "assistant",
+    kind: input.chatType === "casual" ? "chat" : "node_explanation",
+    content: chatOutput.assistantReply
+  });
+
+  await maybeCreateConversationMemory({
+    services: input.services,
+    agentGateway: input.agentGateway,
+    session: input.session,
+    targetNode: input.targetNode,
+    messages: [
+      ...input.sessionMessages,
+      userTranscriptMessage,
+      assistantMessage
+    ]
+  });
+
+  return {
+    task: null,
+    operation: null
   };
 }
 
@@ -510,6 +545,8 @@ function buildBrainstormInput(input: {
   sessionMessages: Message[];
   treeNodes: TreeNode[];
   config: AppConfig;
+  conversationMemory: MemorySummarizerOutput | undefined;
+  actionType: BrainstormAssistantOutput["actionType"];
 }): BrainstormAssistantInput {
   const selectedNodeSummary = input.targetNode
     ? {
@@ -547,15 +584,132 @@ function buildBrainstormInput(input: {
     selectedNodeSummary,
     ancestorPath: buildAncestorPath(input.targetNode, input.treeNodes),
     conversationHistory: buildConversationHistory(input.sessionMessages),
+    conversationMemory: input.conversationMemory,
     siblingSummaries,
     constraints: {
       minBranchCount: 3,
       maxBranchCount: input.config.maxBranchCount,
+      defaultBranchCount: resolveDefaultBranchCount({
+        actionType: input.actionType,
+        targetNode: input.targetNode,
+        treeNodes: input.treeNodes,
+        config: input.config
+      }),
       productDomain: "industrial_design",
       sketchStage: "early",
       inputMode: "voice_only"
     }
   };
+}
+
+function resolveDefaultBranchCount(input: {
+  actionType: BrainstormAssistantOutput["actionType"];
+  targetNode: TreeNode | null;
+  treeNodes: TreeNode[];
+  config: AppConfig;
+}): number {
+  if (input.actionType === "diverge") {
+    return 3;
+  }
+
+  const parentNodeId = input.targetNode?.id ?? null;
+  const latestGroupId = input.treeNodes
+    .filter((node) => node.parentNodeId === parentNodeId && node.childGroupId)
+    .sort((left, right) => right.layerVersion - left.layerVersion)[0]?.childGroupId;
+
+  if (!latestGroupId) {
+    return 3;
+  }
+
+  const groupSize = input.treeNodes.filter(
+    (node) => node.childGroupId === latestGroupId
+  ).length;
+
+  return Math.min(Math.max(groupSize, 3), input.config.maxBranchCount);
+}
+
+async function maybeCreateConversationMemory(input: {
+  services: AppServices;
+  agentGateway: AgentGateway;
+  session: Session;
+  targetNode: TreeNode | null;
+  messages: Message[];
+}): Promise<void> {
+  if (countDialogueTurns(input.messages) <= MEMORY_TRIGGER_TURN_COUNT) {
+    return;
+  }
+
+  const latestMemory =
+    await input.services.repositories.messages.getLatestMemorySummary(
+      input.session.id
+    );
+  const latestMemoryCreatedAt = latestMemory?.createdAt ?? "";
+  const messagesAfterMemory = input.messages.filter(
+    (message) =>
+      message.role === "user" && message.createdAt > latestMemoryCreatedAt
+  );
+
+  if (latestMemory && messagesAfterMemory.length <= MEMORY_TRIGGER_TURN_COUNT) {
+    return;
+  }
+
+  const previousMemory = parseMemorySummaryMessage(latestMemory);
+  const memory = await input.agentGateway.runMemorySummarizer({
+    sessionGoal: input.session.goal,
+    selectedNode: input.targetNode
+      ? {
+          nodeId: input.targetNode.id,
+          intentSummary: input.targetNode.intentSummary
+        }
+      : undefined,
+    recentMessages: selectRecentDialogueMessages(input.messages).map(
+      (message) => ({
+        role: message.role,
+        kind: message.kind,
+        content: message.content
+      })
+    ),
+    previousMemory
+  });
+
+  await input.services.repositories.messages.create({
+    sessionId: input.session.id,
+    taskId: null,
+    role: "system",
+    kind: "memory_summary",
+    content: JSON.stringify(memory)
+  });
+}
+
+function countDialogueTurns(messages: Message[]): number {
+  return messages.filter((message) => message.role === "user").length;
+}
+
+function selectRecentDialogueMessages(messages: Message[]): Message[] {
+  return messages
+    .filter(
+      (message) =>
+        message.kind === "transcript" ||
+        message.kind === "intent" ||
+        message.kind === "summary" ||
+        message.kind === "chat" ||
+        message.kind === "node_explanation"
+    )
+    .slice(-(MEMORY_TRIGGER_TURN_COUNT * 2));
+}
+
+function parseMemorySummaryMessage(
+  message: Message | null
+): MemorySummarizerOutput | undefined {
+  if (!message) {
+    return undefined;
+  }
+
+  try {
+    return MemorySummarizerOutputSchema.parse(JSON.parse(message.content));
+  } catch {
+    return undefined;
+  }
 }
 
 function buildConversationHistory(
@@ -597,12 +751,14 @@ function buildAncestorPath(
   return path;
 }
 
-function validateAssistantOutput(
-  output: BrainstormAssistantOutput,
-  selectedNodeId: string,
-  config: AppConfig
-): void {
-  if (output.targetNodeId !== selectedNodeId) {
+function validateAssistantOutput(input: {
+  output: BrainstormAssistantOutput;
+  selectedNodeId: string;
+  config: AppConfig;
+  transcriptText: string;
+  defaultBranchCount: number;
+}): void {
+  if (input.output.targetNodeId !== input.selectedNodeId) {
     throw new ApiError(
       422,
       "AGENT_TARGET_MISMATCH",
@@ -610,19 +766,41 @@ function validateAssistantOutput(
     );
   }
 
-  if (output.branchCount > config.maxBranchCount) {
+  if (input.output.branchCount > input.config.maxBranchCount) {
     throw new ApiError(
       422,
       "AGENT_BRANCH_COUNT_INVALID",
       "Agent output branch count exceeds configured maximum"
     );
   }
+
+  if (
+    !hasExplicitQuantity(input.transcriptText) &&
+    input.output.branchCount !== input.defaultBranchCount
+  ) {
+    throw new ApiError(
+      422,
+      "BRANCH_COUNT_MISMATCH",
+      "Branch count must match the default count when the user did not request a quantity"
+    );
+  }
+
+  for (const [index, brief] of input.output.directionBriefs.entries()) {
+    if (brief.suggestedFollowups.length !== 3) {
+      throw new ApiError(
+        422,
+        "AGENT_SUGGESTED_FOLLOWUPS_INVALID",
+        `Direction brief ${index + 1} must include exactly 3 suggested followups`
+      );
+    }
+  }
 }
 
 function normalizeAssistantOutput(
   output: unknown,
   transcriptText: string,
-  config: AppConfig
+  config: AppConfig,
+  defaultBranchCount: number
 ): unknown {
   if (!output || typeof output !== "object" || Array.isArray(output)) {
     return output;
@@ -634,14 +812,6 @@ function normalizeAssistantOutput(
     actionType?: unknown;
     directionBriefs?: unknown;
   };
-
-  if (
-    (normalized as { rewrittenIntentForConfirmation?: unknown })
-      .rewrittenIntentForConfirmation === null
-  ) {
-    delete (normalized as { rewrittenIntentForConfirmation?: unknown })
-      .rewrittenIntentForConfirmation;
-  }
 
   if (normalized.actionType === "refresh_layer") {
     normalized.actionType = "refresh";
@@ -663,7 +833,7 @@ function normalizeAssistantOutput(
     const briefCount = Math.min(normalized.directionBriefs.length, maxAllowedCount);
     const expectedCount = explicitRequestedCount
       ? Math.min(explicitRequestedCount, maxAllowedCount)
-      : Math.min(config.defaultBranchCount, maxAllowedCount);
+      : Math.min(defaultBranchCount, maxAllowedCount);
     const finalCount = Math.min(briefCount, expectedCount);
 
     return {
@@ -673,13 +843,17 @@ function normalizeAssistantOutput(
     };
   }
 
-  const branchCount = Math.min(config.defaultBranchCount, config.maxBranchCount);
+  const branchCount = Math.min(defaultBranchCount, config.maxBranchCount);
 
   return {
     ...normalized,
     branchCount,
     directionBriefs: []
   };
+}
+
+function hasExplicitQuantity(transcriptText: string): boolean {
+  return resolveExplicitBranchCount(transcriptText) !== null;
 }
 
 type TurnIntent = "diverge" | "refresh" | "delete" | "undo" | "redo";
@@ -702,6 +876,24 @@ function resolveTurnIntent(transcriptText: string): TurnIntent {
   }
 
   return "diverge";
+}
+
+function resolveChatType(
+  transcriptText: string
+): ChatAssistantInput["chatType"] | null {
+  if (!/不要生成|不用生成|先别生成|不改变画布|不改画布|只聊|先聊/.test(transcriptText)) {
+    return null;
+  }
+
+  if (/节点|这个方向|当前方向|这条/.test(transcriptText)) {
+    return "explain_node";
+  }
+
+  if (/画布|整体|全局|现在有什么|当前有什么|树/.test(transcriptText)) {
+    return "explain_canvas";
+  }
+
+  return "casual";
 }
 
 function resolveExplicitBranchCount(transcriptText: string): number | null {
@@ -876,6 +1068,7 @@ async function persistGeneratedBranches(input: {
       formLanguage: brief.formLanguage,
       userNeedResponse: brief.userNeedResponse,
       inspirationHints: brief.inspirationHints,
+      suggestedFollowups: brief.suggestedFollowups,
       imageUrl: sketch?.imageUrl ?? null,
       status: "ready"
     }))

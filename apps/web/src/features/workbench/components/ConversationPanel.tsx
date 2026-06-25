@@ -8,7 +8,6 @@ import {
   resolveRootNodeDisplayName
 } from "../copy";
 import type { MessageDecoration } from "../types";
-import { createNodeUiMeta } from "../uiMeta";
 import { RecordingBar } from "./RecordingBar";
 
 function getIntentBadge(actionType?: MessageDecoration["actionType"]) {
@@ -101,7 +100,9 @@ export function ConversationPanel() {
   const setRecordingState = useWorkbenchStore((state) => state.setRecordingState);
   const submitVoiceTurn = useWorkbenchStore((state) => state.submitVoiceTurn);
   const submitAudioTurn = useWorkbenchStore((state) => state.submitAudioTurn);
-  const requestUndo = useWorkbenchStore((state) => state.requestUndo);
+  const inputDraftText = useWorkbenchStore((state) => state.uiState.inputDraftText);
+  const inputDraftSource = useWorkbenchStore((state) => state.uiState.inputDraftSource);
+  const inputDraftRevision = useWorkbenchStore((state) => state.uiState.inputDraftRevision);
   const isBusy =
     uiState.isThinking ||
     uiState.apiStatus === "loading" ||
@@ -124,14 +125,21 @@ export function ConversationPanel() {
       : rootDisplayName;
   const hasConfirmedRootIntent =
     serverState.nodes.length > 0 || serverState.session.nextPublicNodeNumber > 1;
-  const selectedNodeIndex = selectedNode
-    ? serverState.nodes.findIndex((node) => node.id === selectedNode.id)
-    : -1;
+  const targetPromptNodeNumber =
+    selectedNode?.publicNodeNumber ?? serverState.nodes[0]?.publicNodeNumber ?? 1;
+  const followupPromptSuggestions = [
+    "刷新这一轮的输出",
+    `基于节点 ${targetPromptNodeNumber} 继续进行发散`,
+    "撤回/重做之前的操作"
+  ];
   const prompts = selectedNode
-    ? createNodeUiMeta(selectedNode, Math.max(selectedNodeIndex, 0)).prompts
-    : hasConfirmedRootIntent
-      ? []
+    ? followupPromptSuggestions
+    : hasConfirmedRootIntent || firstUserTranscript
+      ? followupPromptSuggestions
       : rootPromptSuggestions;
+  const inputPlaceholder = firstUserTranscript
+    ? "描述您的下一步需求"
+    : "请根据根节点的提示描述你的产品开始设计吧！";
   const thinkingMessage = uiState.isThinking
     ? ({
         id: "optimistic-thinking",
@@ -156,15 +164,6 @@ export function ConversationPanel() {
     scrollRegionRef.current.scrollTop = scrollRegionRef.current.scrollHeight;
   }, [visibleMessages]);
 
-  const handlePromptClick = (prompt: string) => {
-    if (prompt.includes("撤销")) {
-      void requestUndo();
-      return;
-    }
-
-    void submitVoiceTurn(prompt);
-  };
-
   return (
     <aside className="sidebar" data-testid="conversation-panel">
       <header className="sidebar-header">
@@ -182,7 +181,7 @@ export function ConversationPanel() {
           </div>
           {selectedNode ? (
             <p>
-              已选中 <strong>NODE {selectedNode.publicNodeNumber}</strong> · {selectedNode.displayName}
+              已选中 <strong>节点 {selectedNode.publicNodeNumber}</strong> · {selectedNode.displayName}
             </p>
           ) : (
             <p>当前聚焦 ROOT 需求，语音提交后会直接展开节点</p>
@@ -205,10 +204,13 @@ export function ConversationPanel() {
 
       <RecordingBar
         prompts={prompts}
+        inputPlaceholder={inputPlaceholder}
+        draftText={inputDraftText}
+        draftSource={inputDraftSource}
+        draftRevision={inputDraftRevision}
         recordingState={uiState.recordingState}
         liveTranscriptText={uiState.liveTranscriptText}
         isBusy={isBusy}
-        onPromptClick={handlePromptClick}
         onTextSubmit={submitVoiceTurn}
         onRecordingStateChange={setRecordingState}
         onRecordingComplete={submitAudioTurn}

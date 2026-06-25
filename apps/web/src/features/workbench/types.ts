@@ -26,6 +26,12 @@ export type NodeUiMeta = {
   };
 };
 
+export type InputDraftSource = {
+  nodeId: string;
+  publicNodeNumber: number;
+  displayName: string;
+};
+
 export type WorkbenchServerState = {
   session: Session;
   nodes: TreeNode[];
@@ -43,6 +49,9 @@ export type WorkbenchUiState = {
   recordingState: RecordingState;
   liveTranscriptText: string | null;
   latestGeneratedNodeIds: string[];
+  inputDraftText: string;
+  inputDraftSource: InputDraftSource | null;
+  inputDraftRevision: number;
   lastActionSummary: string | null;
   isThinking: boolean;
   canRedo: boolean;

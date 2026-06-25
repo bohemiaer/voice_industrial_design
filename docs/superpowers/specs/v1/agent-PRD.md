@@ -23,7 +23,7 @@
 本文档覆盖以下角色：
 
 1. 脑暴助理 `Brainstorm Assistant`
-2. 生图助理 `Sketch Generation Assistant`
+2. 生图网关 `Sketch Generation Gateway`
 3. 闲聊/只读助理 `Chat Assistant`
 4. 记忆摘要助理 `Memory Summarizer`
 5. 编排层 `Orchestrator`
@@ -40,8 +40,8 @@
 4. Orchestrator 调用 Brainstorm Assistant。
 5. Brainstorm Assistant 返回生成类动作、数量理解、用户回复和方向 brief。
 6. Orchestrator 做 schema 校验和业务安全校验。
-7. Orchestrator 为每个 brief 创建分支任务并调用 Sketch Generation Assistant。
-8. 生图助理返回图片和生成元数据。
+7. Orchestrator 为每个 brief 创建分支任务，并用确定性 Prompt Builder 从 brief 构建图像 prompt。
+8. Orchestrator 调用 Sketch Generation Gateway，生图网关返回图片和生成元数据。
 9. Orchestrator 写入任务、节点、消息和树操作记录。
 10. 前端刷新画布和对话区。
 
@@ -56,14 +56,14 @@
 
 1. Orchestrator 识别 `chat`。
 2. Orchestrator 收集必要的会话、当前节点或画布摘要。
-3. Chat Assistant 或模板回复生成一条用户可读回复。
+3. Orchestrator 调用真实 LLM 驱动的 Chat Assistant，生成一条用户可读回复。
 4. Orchestrator 只写入 `messages`，不写 `generation_tasks`、`branch_tasks`、`tree_nodes` 或 `tree_operations`。
 5. 前端刷新对话区，画布结构不变。
 
 近期对话摘要生成方式：
 
 1. v1 默认由 Orchestrator 从 `messages` 中截取最近若干条用户输入、助手摘要和系统状态，组成 `conversationHistory`。
-2. 当消息数量、token 预算或会话时长超过阈值时，Orchestrator 调用 `Memory Summarizer` 生成压缩后的 `conversationMemory`。
+2. 当对话超过 6 轮后，Orchestrator 调用 `Memory Summarizer` 生成压缩后的 `conversationMemory`。
 3. `Memory Summarizer` 是上下文压缩工具，不参与动作判断、分支数量判断、树操作或生图。
 4. Brainstorm Assistant 只读取摘要结果，不负责维护长期记忆。
 5. `conversationMemory` 的优先级低于 `sessionGoal`、当前节点和祖先链路；它只能补充近期偏好、约束和已否定方向。
@@ -99,7 +99,7 @@
 必须严格输出下面这些 camelCase 字段：
 {
   "actionType": "diverge | refresh",
-  "branchCount": 3,
+  "branchCount": "number",
   "assistantReply": "string",
   "directionBriefs": [
     {
@@ -107,6 +107,9 @@
       "intentSummary": "string",
       "variationAxis": "string",
       "formLanguage": ["string"],
+      "userNeedResponse": ["string"],
+      "inspirationHints": ["string"],
+      "suggestedFollowups": ["string", "string", "string"],
       "promptIntent": "string"
     }
   ]
@@ -125,11 +128,14 @@
 - 如果用户提出的新修饰与初始目标冲突，应在不偏离主目标的前提下吸收调整。
 - 如果 requestedAction 已给出，则优先遵守 requestedAction。
 - 如果 requestedAction 未给出，则根据 userIntentText 判断 diverge 或 refresh。
-- 若用户没有明确说数量，则 branchCount 默认输出 3。
+- 若用户没有明确说数量：`diverge` 默认输出 3；`refresh` 默认沿用 Orchestrator 在 `constraints.defaultBranchCount` 中提供的被刷新生成组原始数量。
 - branchCount 必须在 constraints.minBranchCount 和 constraints.maxBranchCount 之间。
 - directionBriefs.length 必须等于 branchCount。
 - assistantReply 必须先复述用户需求，再说明现在会采取的具体动作。
 - variationAxis 必须表达同轮方向之间的真实差异，不要只写“风格不同”。
+- suggestedFollowups 必须严格输出 3 条，作为该节点下方的推荐发散方向。
+- suggestedFollowups 必须围绕该节点自身语义，不得输出泛化教程或全局提示。
+- suggestedFollowups 每条应短小、可直接进入输入框待发送，优先覆盖不同发散角度。
 - promptIntent 应描述可视觉化的工业设计草图意图，避免空泛形容词堆叠。
 
 ## 禁止
@@ -170,7 +176,7 @@ type BrainstormAssistantInput = {
   // 最近对话摘要，用于吸收近期约束，但优先级低于 sessionGoal 和祖先链路。
   conversationHistory: Array<{
     role: "user" | "assistant";
-    kind: "intent" | "summary" | "memory_summary";
+    kind: "transcript" | "intent" | "summary" | "chat" | "node_explanation" | "memory_summary";
     content: string;
   }>;
 
@@ -180,6 +186,7 @@ type BrainstormAssistantInput = {
     activeConstraints: string[];
     rejectedDirections: string[];
     openQuestions: string[];
+    shortSummary: string;
   };
 
   // 可选同层参考。只在避免重复、刷新同组或继续同父节点发散时传入。
@@ -193,6 +200,7 @@ type BrainstormAssistantInput = {
   constraints: {
     minBranchCount: number;
     maxBranchCount: number;
+    defaultBranchCount: number;
   };
 };
 ```
@@ -234,13 +242,34 @@ type BrainstormAssistantOutput = {
     // 该方向的关键形态语言。
     formLanguage: string[];
 
-    // 交给生图助理的核心视觉意图。
+    // 该方向回应了哪些用户需求或约束。
+    userNeedResponse: string[];
+
+    // 该方向可参考的产品、场景或设计线索。
+    inspirationHints: string[];
+
+    // 该节点下方展示的 3 个推荐发散方向，点击后进入输入框待发送。
+    suggestedFollowups: [string, string, string];
+
+    // 交给 Prompt Builder 的核心视觉意图。
     promptIntent: string;
   }>;
 };
 ```
 
-`variationAxis` 是差异化控制字段，不是 UI 主展示字段。它帮助系统检查方向是否真的分化，也帮助生图助理避免同轮结果同质化。
+`variationAxis` 是差异化控制字段，不是 UI 主展示字段。它帮助系统检查方向是否真的分化，也帮助 Prompt Builder 在模板中保留同轮差异。
+
+方向 brief 不只是生图输入，也会被后续链路继续消费：
+
+1. 写入 `branch_tasks.brief_payload`，保留本轮生成任务的原始方向语义。
+2. 落成 `tree_nodes` 的展示字段，例如 `displayName`、`intentSummary`、`formLanguage`、`userNeedResponse` 和 `inspirationHints`。
+3. 作为后续继续发散、刷新、解释节点和构造祖先链路的上下文。
+4. 支撑同轮差异检查和后续评测，例如 `variationAxis` 是否真的不同。
+5. 前端使用 brief 中的 `suggestedFollowups` 展示每个节点下方的 3 个推荐发散方向，用作输入框待发送草稿。
+
+因此 v1 不让 Brainstorm Assistant 直接输出最终图像 prompt 来替代 brief。图像 prompt 是执行层产物，适合记录为 `promptUsed`；brief 是树结构和设计推理的语义层产物，必须长期保留。
+
+节点推荐发散方向属于 Brainstorm Assistant 的强制输出字段。每个 direction brief 必须包含 `suggestedFollowups`，且长度必须为 3。点击建议只写入输入框草稿，不直接调用 Orchestrator，也不创建任务或树操作。
 
 ## 3.5 职责边界
 
@@ -250,7 +279,7 @@ type BrainstormAssistantOutput = {
 2. 理解用户数量意图。
 3. 给出简短用户回复。
 4. 生成差异化方向 brief。
-5. 为每个方向提供稳定名称、意图摘要、变化轴、形态语言和生图意图。
+5. 为每个方向提供稳定名称、意图摘要、变化轴、形态语言、需求回应、灵感线索、3 条推荐发散方向和生图意图。
 
 脑暴助理不负责：
 
@@ -274,37 +303,55 @@ Orchestrator 必须做业务校验：
 1. `actionType` 只能是 `diverge` 或 `refresh`。
 2. `branchCount` 必须在后端允许范围内。
 3. `directionBriefs.length` 必须等于 `branchCount`。
-4. 每个 brief 必须包含 `displayName`、`intentSummary`、`variationAxis`、`formLanguage`、`promptIntent`。
-5. Orchestrator 不再根据原始文本正则覆盖 `branchCount`。
-6. Orchestrator 负责补齐 `briefId`、父节点、节点序号、标签、生成组和任务关系。
+4. 每个 brief 必须包含 `displayName`、`intentSummary`、`variationAxis`、`formLanguage`、`userNeedResponse`、`inspirationHints`、`suggestedFollowups`、`promptIntent`。
+5. 当用户未明确数量时，`branchCount` 应等于 Orchestrator 传入的 `constraints.defaultBranchCount`；`diverge` 的默认值为 3，`refresh` 的默认值为被刷新生成组的原始数量。
+6. 每个 brief 的 `suggestedFollowups.length` 必须等于 3；缺失或长度不等于 3 时视为 Brainstorm Assistant 输出不合格。
+7. Orchestrator 不再根据原始文本正则覆盖 `branchCount`。
+8. Orchestrator 负责补齐 `briefId`、父节点、节点序号、标签、生成组和任务关系。
 
-## 4. 生图助理
+## 4. 生图网关与 Prompt Builder
 
 ## 4.1 角色定义
 
-生图助理是工业设计草图执行者。它接收单个方向 brief，将其转成适合图像模型的早期概念草图。
+生图链路由两个确定性模块组成：
 
-生图助理的图像 prompt 建议使用英文。多数图像模型在英文视觉描述、摄影/渲染/草图术语和负面约束上的稳定性更好；面向用户展示的解释仍使用中文。
+1. `SketchPromptBuilder`：接收单个方向 brief 和 Orchestrator 给定的风格参数，用模板生成图像模型 prompt、negative prompt 和中文视觉摘要。
+2. `SketchGenerationGateway`：接收 prompt，调用图片模型，返回图片 URL 和生成元数据。
 
-## 4.2 输入
+v1 不引入额外 LLM 作为图像 prompt writer，也不要求 Brainstorm Assistant 直接输出完整英文图像 prompt。Brainstorm Assistant 只负责生成语义化方向 brief；Prompt Builder 负责把 brief 翻译成稳定的图像模型输入。
+
+图像 prompt 建议使用英文。多数图像模型在英文视觉描述、摄影/渲染/草图术语和负面约束上的稳定性更好；面向用户展示的解释仍使用中文。
+
+## 4.2 Prompt Builder 输入输出
 
 ```ts
-type SketchGenerationInput = {
+type SketchPromptBuilderInput = {
   brief: {
+    briefId: string;
     displayName: string;
     intentSummary: string;
     variationAxis: string;
     formLanguage: string[];
+    userNeedResponse: string[];
+    inspirationHints: string[];
     promptIntent: string;
   };
 
-  // 由 Orchestrator 确定性计算，不由生图助理判断。v1 默认使用早期工业设计草图风格。
+  // 由 Orchestrator 确定性计算，不由图片模型或 Brainstorm Assistant 判断。v1 默认使用早期工业设计草图风格。
   sketchStyle: {
     sketchTone: "loose" | "controlled";
     detailLevel: "early" | "mid";
     productDomain: "industrial_design";
     branchStage: "first_layer" | "deeper_layer";
   };
+};
+
+type SketchPromptBuilderOutput = {
+  briefId: string;
+  prompt: string;
+  negativePrompt: string;
+  promptLanguage: "en";
+  visualSummary: string;
 };
 ```
 
@@ -317,13 +364,22 @@ type SketchGenerationInput = {
 
 这些字段会影响生图 prompt 的视觉表达，例如线稿松紧、细节密度和是否强调方向差异。但它们是后端策略参数，不是需要 LLM 重新推理的上下文。
 
-不再向生图助理传 `siblingContext`。同轮差异由 Brainstorm Assistant 在每个 brief 的 `variationAxis`、`formLanguage` 和 `promptIntent` 中完成；生图助理只忠实执行单个 brief，避免二次比较兄弟方向导致偏离。
+不再向生图链路传 `siblingContext`。同轮差异由 Brainstorm Assistant 在每个 brief 的 `variationAxis`、`formLanguage` 和 `promptIntent` 中完成；Prompt Builder 只忠实展开单个 brief，避免二次比较兄弟方向导致偏离。
 
-## 4.3 输出
+## 4.3 生图网关输入输出
 
 ```ts
-type SketchGenerationOutput = {
+type SketchGenerationGatewayInput = {
+  briefId: string;
+  prompt: string;
+  negativePrompt: string;
+  promptLanguage: "en";
+  visualSummary: string;
+};
+
+type SketchGenerationGatewayOutput = {
   imageId: string;
+  briefId: string;
   imageUrl: string;
   promptUsed: string;
   negativePromptUsed?: string;
@@ -332,60 +388,41 @@ type SketchGenerationOutput = {
 };
 ```
 
-## 4.4 System Prompt
+生图网关不接收完整 brief，也不理解 `displayName`、`variationAxis` 或 `formLanguage` 的业务含义。它只负责把 Prompt Builder 的执行层输入交给图片模型，并把实际使用的 prompt 和图片结果返回给 Orchestrator。
 
-```text
-## Role
-You are an industrial design sketch prompt writer. You translate one concept brief into a clear image-generation prompt for an early-stage product design sketch.
+## 4.4 Prompt Builder 规则
 
-## Task
-Create one English image prompt and one English negative prompt for the image model. The image should look like an early industrial design concept sketch, not a finished product render.
+Prompt Builder 必须使用代码模板从 brief 生成图像 prompt，不调用额外 LLM。模板规则如下：
 
-## Input
-You receive:
-- brief.displayName
-- brief.intentSummary
-- brief.variationAxis
-- brief.formLanguage
-- brief.promptIntent
-- sketchStyle.sketchTone
-- sketchStyle.detailLevel
-- sketchStyle.productDomain
-- sketchStyle.branchStage
+1. 图像 prompt 使用英文，明确产品类型和工业设计意图。
+2. 必须包含 `displayName`、`intentSummary`、`variationAxis`、`formLanguage` 和 `promptIntent` 表达的核心信息。
+3. 优先强调 silhouette、proportion、key surfaces、material cues、interaction areas 和 sketch medium。
+4. `branchStage` 为 `first_layer` 时，prompt 保持 loose、exploratory、visually broad。
+5. `branchStage` 为 `deeper_layer` 时，prompt 更 controlled，但仍延续所选方向。
+6. `detailLevel` 为 `early` 时，避免小技术细节，重点放在轮廓和比例。
+7. `detailLevel` 为 `mid` 时，可以增加 seams、component boundaries、CMF cues 和 interaction details，但仍保持草图感。
+8. 固定加入早期概念草图语言，例如 loose marker sketch、clean linework、subtle grey shading、white background、product design ideation board。
+9. negative prompt 默认排除 photorealistic final render、advertisement、UI text、logos、brand marks、people、hands、cluttered background、exploded diagrams、annotations 和 multiple unrelated products。
+10. `visualSummary` 可由 brief 确定性生成，例如 `${displayName} 的早期工业设计草图。`
 
-## Output
-Return a JSON object only:
-{
-  "prompt": "English image prompt",
-  "negativePrompt": "English negative prompt",
-  "visualSummary": "中文短句，总结画面表达"
-}
-
-## Prompt rules
-- Write the image prompt in English.
-- Keep the product type and industrial design intent explicit.
-- Emphasize silhouette, proportion, key surfaces, material cues, interaction areas, and sketch medium.
-- If sketchStyle.branchStage is first_layer, keep the sketch loose, exploratory, and visually broad.
-- If sketchStyle.branchStage is deeper_layer, make the sketch more controlled while preserving the selected direction.
-- If sketchStyle.detailLevel is early, avoid small technical details and focus on silhouette and proportion.
-- If sketchStyle.detailLevel is mid, add clearer seams, component boundaries, CMF cues, and interaction details while keeping it sketch-like.
-- Use early concept sketch language: loose marker sketch, clean linework, subtle grey shading, white background, product design ideation board.
-- Avoid photorealistic final render language unless explicitly requested.
-- Avoid UI text, logos, brand marks, people, hands, cluttered background, exploded diagrams, annotations, and multiple unrelated products.
-- Do not compare sibling directions or invent extra variation axes.
-- Do not change the core concept, product category, or variation axis.
-```
+Prompt Builder 不得改写核心概念、产品品类或 `variationAxis`，也不得自行比较兄弟方向或发明额外变化轴。
 
 ## 4.5 职责边界
 
-生图助理负责：
+Prompt Builder 负责：
 
-1. 忠实执行单个 brief。
-2. 生成早期工业设计草图。
-3. 根据 Orchestrator 给定的 `sketchStyle` 控制草图松紧和细节程度。
-4. 返回 prompt 元数据。
+1. 忠实展开单个 brief。
+2. 将 brief 和 `sketchStyle` 转成稳定的图像 prompt。
+3. 生成固定或模板化 negative prompt。
+4. 生成用户可见的中文短视觉摘要。
 
-生图助理不负责：
+Sketch Generation Gateway 负责：
+
+1. 调用图片模型。
+2. 返回图片 URL、`promptUsed`、`negativePromptUsed` 和生成元数据。
+3. 在单个分支失败时返回可记录的错误，让其余分支继续生成和落树。
+
+Prompt Builder 和 Sketch Generation Gateway 不负责：
 
 1. 判断树怎么长。
 2. 决定本轮有几个分支。
@@ -397,7 +434,7 @@ Return a JSON object only:
 
 ## 5.1 角色定义
 
-Chat Assistant 是只读对话助理，用于处理不应写树的闲聊、帮助说明、状态查询和当前节点解释。v1 可以先用模板回复覆盖常见问题；只有解释节点、总结当前层等需要更自然语言组织的场景才调用轻量 LLM。
+Chat Assistant 是真实 LLM 驱动的只读对话助理，用于处理不应写树的闲聊、帮助说明、状态查询和当前节点解释。v1 不用静态模板替代 Chat Assistant；模板只可作为接口失败时的错误兜底，不作为正常回答路径。
 
 ## 5.2 输入
 
@@ -406,6 +443,18 @@ type ChatAssistantInput = {
   userIntentText: string;
   chatType: "casual" | "help" | "status" | "explain_node" | "explain_canvas";
   sessionGoal: string;
+  conversationMemory?: {
+    stablePreferences: string[];
+    activeConstraints: string[];
+    rejectedDirections: string[];
+    openQuestions: string[];
+    shortSummary: string;
+  };
+  conversationHistory: Array<{
+    role: "user" | "assistant" | "system";
+    kind: "transcript" | "summary" | "chat" | "node_explanation" | "status";
+    content: string;
+  }>;
   selectedNode?: {
     nodeId: string;
     displayName: string;
@@ -436,6 +485,7 @@ Chat Assistant 负责：
 2. 解释当前选中节点或当前可见方向。
 3. 总结当前画布状态。
 4. 处理普通寒暄和非生成类问题。
+5. 基于 `conversationHistory` 和可选 `conversationMemory` 保持只读对话连续性。
 
 Chat Assistant 不负责：
 
@@ -450,11 +500,13 @@ Chat Assistant 不负责：
 
 Memory Summarizer 是轻量上下文压缩节点，用于把过长的消息历史压缩成可控记忆。它不是创意决策节点，也不是状态写入者。
 
-v1 不需要每轮都调用它。建议在以下情况触发：
+v1 不需要每轮都调用它。触发规则固定为：
 
-1. 最近消息超过固定条数。
-2. 估算 token 超过 Brainstorm Assistant 输入预算。
-3. 用户连续多轮表达偏好、约束、否定方向或开放问题。
+1. 对话超过 6 轮后触发。
+2. 每次触发时，Orchestrator 传入最近 6 轮对话和可选 `previousMemory`。
+3. 6 轮以内不调用 Memory Summarizer，只使用 `conversationHistory`。
+
+这里的“一轮”指一次用户输入及其对应助手回复。生成类、chat 类和确定性树操作类回复都计入对话轮数；纯后台状态轮询和无用户输入的任务进度更新不计入。
 
 ## 6.2 输入
 
@@ -548,21 +600,22 @@ Orchestrator 负责：
 1. 接收语音、文字和画布操作。
 2. 将输入来源归一为标准意图。
 3. 做 turn 级意图分流：`chat`、确定性树操作、生成类任务。
-4. 为 `chat` 调用模板或 Chat Assistant，并只写入消息。
+4. 为 `chat` 调用真实 LLM 驱动的 Chat Assistant，并只写入消息。
 5. 直接执行 `delete / undo / redo`。
 6. 为 `diverge / refresh` 构造 Brainstorm Assistant 输入。
-7. 在上下文过长时调用 Memory Summarizer，并把摘要作为下游输入。
+7. 在对话超过 6 轮后调用 Memory Summarizer，并把摘要作为下游输入。
 8. 校验 Brainstorm Assistant 输出。
 9. 创建 generation task 和 branch task。
-10. 调用生图助理。
+10. 调用 Prompt Builder 和生图网关。
 11. 写入 tree nodes、messages、tree operations。
 12. 维护当前选中节点、最近执行目标、redo 语义和节点编号。
+13. 将 Brainstorm Assistant 强制输出的 `suggestedFollowups` 随节点语义返回给前端，使每个已生成节点可展示 3 个推荐发散方向；推荐方向点击后的发送仍按普通文字输入处理。
 
 Orchestrator 不负责：
 
 1. 生成创意方向。
 2. 用正则覆盖 LLM 对数量的语义判断。
-3. 替代生图助理做视觉表达。
+3. 替代 Prompt Builder 改写图像 prompt 模板规则。
 4. 让 agent 直接决定数据库关系。
 
 ## 7.3 标准意图归一
@@ -602,9 +655,9 @@ type OrchestratorTurnResult = {
 4. 用户明确要求数量时，Brainstorm Assistant 在 `branchCount` 中体现该理解。
 5. Orchestrator 不用正则覆盖 `branchCount`。
 6. `delete / undo / redo` 不进入生图链路。
-7. `chat` 不创建生成任务、不调用生图、不写树操作。
-8. `Memory Summarizer` 只压缩上下文，不影响动作分流和树写入。
-9. 生图助理使用英文图像 prompt，用户可见解释保持中文。
+7. `chat` 调用真实 LLM 驱动的 Chat Assistant，但不创建生成任务、不调用生图、不写树操作。
+8. `Memory Summarizer` 只在对话超过 6 轮后触发，只压缩上下文，不影响动作分流和树写入。
+9. Prompt Builder 使用英文图像 prompt，用户可见解释保持中文。
 10. 每次写树都产生可回放的 `TreeOperation`。
 11. 单个分支生图失败时，其余分支仍可落树。
 
@@ -616,4 +669,4 @@ type OrchestratorTurnResult = {
 4. `Quantity Understanding Set`：区分“设计一个产品”和“只生成一个方向”。
 5. `Chat Routing Set`：区分普通帮助、状态查询、节点解释和生成请求。
 6. `Memory Summary Set`：验证偏好、约束、否定方向和开放问题是否被正确压缩。
-7. `Sketch Prompt Set`：验证英文生图 prompt 是否忠实执行 brief 并保持同轮差异。
+7. `Sketch Prompt Template Set`：验证确定性英文生图 prompt 是否忠实执行 brief 并保持同轮差异。

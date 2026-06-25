@@ -985,6 +985,12 @@ button {
   overflow: visible;
 }
 
+.react-flow__node-brainstorm,
+.react-flow__node-brainstorm .node-card,
+.react-flow__node-brainstorm .node-suggestion-card {
+  pointer-events: auto;
+}
+
 .tree-node {
   position: relative;
   display: flex;
@@ -995,6 +1001,10 @@ button {
 .node-shell {
   position: relative;
   width: 290px;
+}
+
+.node-shell.has-suggestion-tree {
+  width: 410px;
 }
 
 .node-card {
@@ -1008,6 +1018,10 @@ button {
   box-shadow: var(--shadow-card);
   text-align: left;
   transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.node-shell.has-suggestion-tree .node-card {
+  margin-left: 60px;
 }
 
 .node-card:hover {
@@ -1113,8 +1127,8 @@ button {
   line-height: 1.65;
 }
 
-.node-card__requirement-text {
-  margin-bottom: 12px;
+.node-card__requirement .node-card__requirement-text {
+  margin-bottom: 18px;
 }
 
 .node-card__empty-prompts {
@@ -1149,6 +1163,80 @@ button {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.node-suggestion-list {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  gap: 7px;
+  width: 250px;
+  margin: 10px auto 0;
+}
+
+.node-suggestion-tree {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 10px;
+  width: 410px;
+  margin-top: 8px;
+  margin-left: 0;
+  padding-top: 56px;
+}
+
+.node-suggestion-bezier-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 410px;
+  height: 76px;
+  color: rgba(132, 143, 158, 0.72);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.node-suggestion-bezier-lines path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.45;
+}
+
+.node-suggestion-branch {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+}
+
+.node-suggestion-chip {
+  min-height: 28px;
+  border: 1px solid rgba(184, 193, 205, 0.74);
+  border-style: dashed;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: none;
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: center;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.node-suggestion-card {
+  min-height: 48px;
+  width: 100%;
+  border-radius: 14px;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.node-suggestion-chip:hover {
+  border-color: rgba(82, 121, 240, 0.34);
+  box-shadow: none;
+  transform: translateY(-1px);
 }
 
 .visual-core,
@@ -1670,14 +1758,16 @@ button {
 
 .prompt-suggestions {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
   margin-bottom: 12px;
-  overflow: auto;
-  padding-bottom: 2px;
+  overflow: visible;
 }
 
 .prompt-chip {
   flex: none;
+  max-width: 100%;
   padding: 8px 12px;
   border: 1px solid rgba(230, 234, 239, 0.95);
   border-radius: 999px;
@@ -1722,7 +1812,7 @@ button {
 
 .input-panel__field {
   min-height: 130px;
-  padding: 22px 18px 12px;
+  padding: 12px 18px 12px;
   color: #b0b6c0;
 }
 
@@ -1733,10 +1823,53 @@ button {
   line-height: 1.75;
 }
 
+.input-draft-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+  border: 1px solid rgba(82, 121, 240, 0.2);
+  border-radius: 999px;
+  padding: 7px 8px 7px 11px;
+  background: rgba(248, 250, 255, 0.96);
+  box-shadow: none;
+  color: #435fbf;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.input-draft-chip__source {
+  flex: none;
+  color: #7882a5;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.input-draft-chip__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.input-draft-chip__remove {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(82, 121, 240, 0.1);
+  color: #5263a4;
+  font-size: 15px;
+  line-height: 1;
+}
+
 .input-panel__text-input {
   display: block;
   width: 100%;
-  margin-top: 8px;
+  margin-top: 4px;
   border: 0;
   outline: none;
   background: transparent;
@@ -2000,6 +2133,23 @@ button {
 
   .node-shell {
     width: 246px;
+  }
+
+  .node-shell.has-suggestion-tree {
+    width: 310px;
+  }
+
+  .node-shell.has-suggestion-tree .node-card {
+    margin-left: 32px;
+  }
+
+  .node-suggestion-list {
+    width: 222px;
+  }
+
+  .node-suggestion-tree {
+    width: 310px;
+    gap: 7px;
   }
 
   .sidebar-header {

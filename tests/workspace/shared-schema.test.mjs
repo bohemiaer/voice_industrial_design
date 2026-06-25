@@ -15,7 +15,7 @@ test("shared dist entry exists after build", async () => {
   assert.ok(shared.GenerationTaskSchema);
 });
 
-test("brainstorm output schema enforces confirmation rewrite and branch count", async () => {
+test("brainstorm output schema enforces direct execution shape and branch count", async () => {
   const shared = await import(distEntry);
 
   const valid = shared.BrainstormAssistantOutputSchema.safeParse({
@@ -24,9 +24,6 @@ test("brainstorm output schema enforces confirmation rewrite and branch count", 
     branchCount: 2,
     designIntentSummary: "沿轻薄办公感继续下钻",
     assistantReply: "我将沿当前方向继续生成两个更柔和的子方向。",
-    confirmationRequired: true,
-    rewrittenIntentForConfirmation:
-      "我将沿轻薄办公感方向继续生成 2 个更柔和的子方向。",
     promptHints: ["可继续补充比例和材质倾向"],
     directionBriefs: [
       {
@@ -38,6 +35,7 @@ test("brainstorm output schema enforces confirmation rewrite and branch count", 
         formLanguage: ["圆润", "低重心"],
         userNeedResponse: ["更适合办公环境"],
         inspirationHints: ["显示器底座"],
+        suggestedFollowups: ["继续细化比例", "强化材质方向", "探索交互细节"],
         variationAxis: "边界柔和程度",
         promptIntent: "工业设计草图，低重心，柔和边界"
       },
@@ -50,6 +48,7 @@ test("brainstorm output schema enforces confirmation rewrite and branch count", 
         formLanguage: ["轻薄", "悬浮"],
         userNeedResponse: ["更轻盈"],
         inspirationHints: ["桌面音箱"],
+        suggestedFollowups: ["继续细化比例", "强化材质方向", "探索交互细节"],
         variationAxis: "底部留空比例",
         promptIntent: "工业设计草图，轻薄，悬浮底座"
       }
@@ -64,7 +63,6 @@ test("brainstorm output schema enforces confirmation rewrite and branch count", 
     branchCount: 2,
     designIntentSummary: "刷新当前层",
     assistantReply: "我将刷新当前层。",
-    confirmationRequired: true,
     promptHints: [],
     directionBriefs: []
   });
@@ -146,6 +144,7 @@ test("tree node schema requires stable naming and voice aliases", async () => {
     formLanguage: ["轻薄", "低重心"],
     userNeedResponse: ["适合办公环境"],
     inspirationHints: ["显示器底座", "桌面设备"],
+    suggestedFollowups: ["继续细化比例", "强化材质方向", "探索交互细节"],
     imageUrl: "https://example.com/sketch-12.png",
     status: "ready",
     createdAt: "2026-06-12T10:00:00+08:00",
@@ -153,4 +152,75 @@ test("tree node schema requires stable naming and voice aliases", async () => {
   });
 
   assert.equal(result.success, true);
+});
+
+test("v1 schemas validate standard intent, chat, and memory payloads", async () => {
+  const shared = await import(distEntry);
+
+  const standardIntent = shared.StandardTurnIntentSchema.parse({
+    sessionId: "session-1",
+    userIntentText: "解释一下当前节点",
+    intentKind: "chat",
+    chatType: "explain_node",
+    targetNodeId: "node-1",
+    source: "text"
+  });
+
+  assert.equal(standardIntent.intentKind, "chat");
+
+  const chatOutput = shared.ChatAssistantOutputSchema.parse({
+    assistantReply: "这个方向强调轻薄和悬浮感。"
+  });
+
+  assert.equal(chatOutput.assistantReply.includes("轻薄"), true);
+
+  const memoryOutput = shared.MemorySummarizerOutputSchema.parse({
+    stablePreferences: ["偏好轻薄"],
+    activeConstraints: ["不要偏离桌面设备"],
+    rejectedDirections: ["过于机械"],
+    openQuestions: ["是否需要移动电源"],
+    shortSummary: "用户偏好轻薄、克制的桌面设备方向。"
+  });
+
+  assert.equal(memoryOutput.shortSummary.length > 0, true);
+});
+
+test("brainstorm input carries defaultBranchCount and memory shortSummary", async () => {
+  const shared = await import(distEntry);
+
+  const input = shared.BrainstormAssistantInputSchema.parse({
+    sessionGoal: "探索桌面补光设备",
+    transcriptText: "这组换一版",
+    selectedNodeId: "node-1",
+    selectedNodeSummary: {
+      publicNodeNumber: 1,
+      displayName: "轻薄悬浮感",
+      label: "方向 1",
+      intentSummary: "压缩体量并强化悬浮底座。",
+      formLanguage: ["轻薄"],
+      userNeedResponse: ["降低桌面压迫"],
+      inspirationHints: ["办公设备"]
+    },
+    ancestorPath: [],
+    conversationHistory: [],
+    conversationMemory: {
+      stablePreferences: ["轻薄"],
+      activeConstraints: ["办公桌面"],
+      rejectedDirections: [],
+      openQuestions: [],
+      shortSummary: "用户持续偏好轻薄办公设备。"
+    },
+    siblingSummaries: [],
+    constraints: {
+      minBranchCount: 3,
+      maxBranchCount: 4,
+      defaultBranchCount: 4,
+      productDomain: "industrial_design",
+      sketchStage: "early",
+      inputMode: "voice_only"
+    }
+  });
+
+  assert.equal(input.constraints.defaultBranchCount, 4);
+  assert.equal(input.conversationMemory.shortSummary.includes("轻薄"), true);
 });
