@@ -60,6 +60,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.108.2
         version: 2.108.2
+      '@voice-industrial-design/server':
+        specifier: workspace:*
+        version: link:../server
       '@voice-industrial-design/shared':
         specifier: workspace:*
         version: link:../../packages/shared

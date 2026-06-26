@@ -2,6 +2,12 @@
   "name": "@voice-industrial-design/server",
   "version": "0.1.0",
   "private": true,
+  "exports": {
+    "./app": {
+      "types": "./src/app.ts",
+      "default": "./dist/app.js"
+    }
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json",

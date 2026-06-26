@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@opentelemetry/api": "1.4.1",
+    "@voice-industrial-design/server": "workspace:*",
     "@supabase/supabase-js": "^2.108.2",
     "@voice-industrial-design/shared": "workspace:*",
     "@xyflow/react": "^12.11.0",

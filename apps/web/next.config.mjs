@@ -1,9 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  transpilePackages: [
+    "@voice-industrial-design/server",
+    "@voice-industrial-design/shared"
+  ],
   async rewrites() {
-    const apiBaseUrl =
-      process.env.WORKBENCH_API_PROXY_URL ?? "http://localhost:8787";
+    const apiBaseUrl = process.env.WORKBENCH_API_PROXY_URL;
+
+    if (!apiBaseUrl) {
+      return [];
+    }
 
     return [
       {

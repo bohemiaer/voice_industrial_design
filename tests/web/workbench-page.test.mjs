@@ -41,6 +41,20 @@ const apiPath = path.join(
   "api.ts"
 );
 const apiSource = fs.existsSync(apiPath) ? fs.readFileSync(apiPath, "utf8") : "";
+const nextApiRoutePath = path.join(
+  process.cwd(),
+  "apps",
+  "web",
+  "src",
+  "app",
+  "api",
+  "[...path]",
+  "route.ts"
+);
+const nextApiRouteSource = fs.existsSync(nextApiRoutePath)
+  ? fs.readFileSync(nextApiRoutePath, "utf8")
+  : "";
+const nextConfigSource = read("apps", "web", "next.config.mjs");
 const loginPagePath = path.join(
   process.cwd(),
   "apps",
@@ -295,6 +309,7 @@ test("canvas lays out generated nodes as a vertical tree without obsolete toolba
   assert.match(globalsSource, /\.port-top/);
   assert.match(globalsSource, /\.port-bottom/);
   assert.match(globalsSource, /\.node-card__image/);
+  assert.match(globalsSource, /\.node-card__visual\s*\{[\s\S]*aspect-ratio:\s*3\s*\/\s*2;/);
   assert.doesNotMatch(canvasWorkspaceSource, /label: "面板"/);
   assert.doesNotMatch(canvasWorkspaceSource, /label: "灵感"/);
   assert.match(canvasWorkspaceSource, /label: "全局显示"/);
@@ -384,6 +399,16 @@ test("workbench defines an api client for live session state", () => {
   assert.match(apiSource, /\/api\/sessions/);
   assert.match(apiSource, /\/tree/);
   assert.match(apiSource, /\/messages/);
+});
+
+test("vercel deployment serves the Fastify API through a Next route handler", () => {
+  assert.match(nextConfigSource, /transpilePackages/);
+  assert.match(nextConfigSource, /@voice-industrial-design\/server/);
+  assert.match(nextConfigSource, /if \(!apiBaseUrl\) \{\s*return \[\];\s*\}/);
+  assert.match(nextApiRouteSource, /runtime = "nodejs"/);
+  assert.match(nextApiRouteSource, /buildApp/);
+  assert.match(nextApiRouteSource, /app\.inject/);
+  assert.match(nextApiRouteSource, /\/api\$\{backendPath/);
 });
 
 test("workbench store is live-api only and does not fall back to demo fixtures", () => {
