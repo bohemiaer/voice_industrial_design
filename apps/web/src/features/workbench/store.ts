@@ -770,6 +770,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         }
       }));
     } catch (error) {
+      if (isSessionNotFoundError(error)) {
+        const recoveredState = await recoverStaleApiSession(get().uiState);
+        set(recoveredState);
+        return;
+      }
+
       set((current) => ({
         uiState: {
           ...current.uiState,
@@ -823,6 +829,12 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         }
       }));
     } catch (error) {
+      if (isSessionNotFoundError(error)) {
+        const recoveredState = await recoverStaleApiSession(get().uiState);
+        set(recoveredState);
+        return;
+      }
+
       set((current) => ({
         uiState: {
           ...current.uiState,

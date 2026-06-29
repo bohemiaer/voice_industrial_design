@@ -422,7 +422,8 @@ test("vercel deployment serves the Fastify API through a Next route handler", ()
   assert.match(nextApiRouteSource, /buildApp/);
   assert.match(nextApiRouteSource, /app\.inject/);
   assert.match(nextApiRouteSource, /\/api\$\{backendPath/);
-  assert.match(nextApiRouteSource, /process\.env\.DATABASE_URL\s*\?\s*"postgres"\s*:\s*"memory"/);
+  assert.match(nextApiRouteSource, /resolvePersistenceMode/);
+  assert.match(nextApiRouteSource, /localhost\|127\\\.0\\\.0\\\.1/);
 });
 
 test("workbench store is live-api only and does not fall back to demo fixtures", () => {
@@ -485,6 +486,8 @@ test("workbench only recovers when the backend session is actually missing", () 
   assert.match(storeSource, /recoverStaleApiSession/);
   assert.match(storeSource, /submitVoiceTurn\(transcriptText, true\)/);
   assert.match(storeSource, /submitAudioTurn\(audio, true\)/);
+  assert.match(storeSource, /requestUndo:[\s\S]*?isSessionNotFoundError\(error\)/);
+  assert.match(storeSource, /requestRedo:[\s\S]*?isSessionNotFoundError\(error\)/);
   assert.match(storeSource, /后端会话已重置/);
   assert.doesNotMatch(apiSource, /status >= 500/);
   assert.doesNotMatch(storeSource, /isApiConnectionInterruptedError/);

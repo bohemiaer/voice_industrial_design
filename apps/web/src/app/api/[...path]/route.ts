@@ -7,10 +7,19 @@ type HttpMethod = "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PU
 
 let appPromise: ReturnType<typeof buildApp> | null = null;
 
+function resolvePersistenceMode() {
+  const databaseUrl = process.env.DATABASE_URL ?? "";
+  const isLocalDatabaseUrl = /(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(
+    databaseUrl
+  );
+
+  return databaseUrl && !isLocalDatabaseUrl ? "postgres" : "memory";
+}
+
 function getBackendApp(): ReturnType<typeof buildApp> {
   if (!appPromise) {
     appPromise = buildApp({
-      persistenceMode: process.env.DATABASE_URL ? "postgres" : "memory"
+      persistenceMode: resolvePersistenceMode()
     });
   }
 
