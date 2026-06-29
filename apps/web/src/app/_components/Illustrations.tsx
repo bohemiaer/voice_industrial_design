@@ -1,8 +1,9 @@
 import Image from 'next/image';
 import { MousePointer2, Hand, Minus, Plus, Undo2, Redo2, Upload, ArrowUp, Sparkles, Download, FolderDown } from 'lucide-react';
-import exportReference from '../../../../../docs/langding/export.png';
-import firstGenReference from '../../../../../docs/langding/first-gen.png';
-import nodeReference from '../../../../../docs/langding/node.png';
+
+const firstGenReference = '/landing/first-gen.png';
+const nodeReference = '/landing/node.png';
+const exportReference = '/landing/export.png';
 
 export const OverviewIllustration = () => {
   return (
