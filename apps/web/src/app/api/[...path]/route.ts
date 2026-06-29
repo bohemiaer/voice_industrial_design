@@ -9,10 +9,7 @@ let appPromise: ReturnType<typeof buildApp> | null = null;
 
 function getBackendApp(): ReturnType<typeof buildApp> {
   if (!appPromise) {
-    appPromise = buildApp({
-      persistenceMode:
-        process.env.PERSISTENCE_MODE === "postgres" ? "postgres" : "memory"
-    });
+    appPromise = buildApp();
   }
 
   return appPromise;
