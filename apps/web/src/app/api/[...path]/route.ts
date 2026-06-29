@@ -66,10 +66,12 @@ async function proxyToBackend(
   const app = await getBackendApp();
   const url = new URL(request.url);
   const backendPath = `/${context.params.path?.join("/") ?? ""}`;
-  const payload =
-    request.method === "GET" || request.method === "HEAD"
-      ? undefined
-      : Buffer.from(await request.arrayBuffer());
+
+  let payload: Buffer | undefined;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const bodyBuffer = Buffer.from(await request.arrayBuffer());
+    payload = bodyBuffer.length > 0 ? bodyBuffer : undefined;
+  }
 
   const response = await app.inject({
     method: request.method as HttpMethod,

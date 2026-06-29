@@ -337,7 +337,12 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
         return (
           [...store.treeOperations]
             .reverse()
-            .find((operation) => operation.taskId === taskId) ?? null
+            .find(
+              (operation) =>
+                operation.taskId === taskId &&
+                operation.type !== "undo" &&
+                operation.type !== "redo"
+            ) ?? null
         );
       },
       async getLastUndoableBySessionId(

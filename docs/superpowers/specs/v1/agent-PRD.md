@@ -19,14 +19,16 @@
 6. `delete`、`undo`、`redo` 是确定性树操作，由 Orchestrator 直接执行，不进入脑暴和生图链路。
 7. 生成类主动作统一为 `diverge` 和 `refresh`。
 8. 主链路采用直执行模型，不设置额外审批卡或中间等待态。
+9. 图像 prompt 默认由确定性 Prompt Builder 生成；可选 Image Prompt Writer 只作为调试增强，失败时必须回退到确定性 Prompt Builder。
 
 本文档覆盖以下角色：
 
 1. 脑暴助理 `Brainstorm Assistant`
 2. 生图网关 `Sketch Generation Gateway`
-3. 闲聊/只读助理 `Chat Assistant`
-4. 记忆摘要助理 `Memory Summarizer`
-5. 编排层 `Orchestrator`
+3. 可选图像 Prompt Writer `Image Prompt Writer`
+4. 闲聊/只读助理 `Chat Assistant`
+5. 记忆摘要助理 `Memory Summarizer`
+6. 编排层 `Orchestrator`
 
 视觉审稿助理当前不纳入 v1 主链路，仅作为后续扩展保留。
 
@@ -40,10 +42,12 @@
 4. Orchestrator 调用 Brainstorm Assistant。
 5. Brainstorm Assistant 返回生成类动作、数量理解、用户回复和方向 brief。
 6. Orchestrator 做 schema 校验和业务安全校验。
-7. Orchestrator 为每个 brief 创建分支任务，并用确定性 Prompt Builder 从 brief 构建图像 prompt。
-8. Orchestrator 调用 Sketch Generation Gateway，生图网关返回图片和生成元数据。
-9. Orchestrator 写入任务、节点、消息和树操作记录。
-10. 前端刷新画布和对话区。
+7. Orchestrator 为每个 brief 创建分支任务，并构造 `SketchGenerationInput`。
+8. Sketch Generation Gateway 先用确定性 Prompt Builder 构建 fallback prompt。
+9. 如果 `IMAGE_PROMPT_WRITER_ENABLED=true`，Sketch Generation Gateway 调用可选 Image Prompt Writer 改写图像 prompt；失败或结构不合格时回退 fallback prompt。
+10. Sketch Generation Gateway 调用图片模型，返回图片和生成元数据。
+11. Orchestrator 写入任务、节点、消息和树操作记录。
+12. 前端刷新画布和对话区。
 
 确定性树操作链路如下：
 
@@ -309,16 +313,17 @@ Orchestrator 必须做业务校验：
 7. Orchestrator 不再根据原始文本正则覆盖 `branchCount`。
 8. Orchestrator 负责补齐 `briefId`、父节点、节点序号、标签、生成组和任务关系。
 
-## 4. 生图网关与 Prompt Builder
+## 4. 生图网关、Prompt Builder 与可选 Prompt Writer
 
 ## 4.1 角色定义
 
-生图链路由两个确定性模块组成：
+生图链路由默认确定性模块和一个可选调试模块组成：
 
 1. `SketchPromptBuilder`：接收单个方向 brief 和 Orchestrator 给定的风格参数，用模板生成图像模型 prompt、negative prompt 和中文视觉摘要。
-2. `SketchGenerationGateway`：接收 prompt，调用图片模型，返回图片 URL 和生成元数据。
+2. `ImagePromptWriter`：可选 LLM 调试模块，接收结构化 brief 与 fallback prompt，将其改写成更适合图片模型的英文 prompt。
+3. `SketchGenerationGateway`：接收最终 prompt，调用图片模型，返回图片 URL 和生成元数据。
 
-v1 不引入额外 LLM 作为图像 prompt writer，也不要求 Brainstorm Assistant 直接输出完整英文图像 prompt。Brainstorm Assistant 只负责生成语义化方向 brief；Prompt Builder 负责把 brief 翻译成稳定的图像模型输入。
+v1 默认不依赖额外 LLM 才能生图，也不要求 Brainstorm Assistant 直接输出完整英文图像 prompt。Brainstorm Assistant 只负责生成语义化方向 brief；Prompt Builder 负责把 brief 翻译成稳定的图像模型输入。Image Prompt Writer 仅在 `IMAGE_PROMPT_WRITER_ENABLED=true` 时启用，用于观察和比较图像 prompt 改写效果；它不是树决策者，失败时必须回退到 Prompt Builder 输出。
 
 图像 prompt 建议使用英文。多数图像模型在英文视觉描述、摄影/渲染/草图术语和负面约束上的稳定性更好；面向用户展示的解释仍使用中文。
 
@@ -338,12 +343,23 @@ type SketchPromptBuilderInput = {
   };
 
   // 由 Orchestrator 确定性计算，不由图片模型或 Brainstorm Assistant 判断。v1 默认使用早期工业设计草图风格。
-  sketchStyle: {
+  sessionStyle: {
     sketchTone: "loose" | "controlled";
     detailLevel: "early" | "mid";
     productDomain: "industrial_design";
+  };
+
+  depthContext: {
+    depth: number;
     branchStage: "first_layer" | "deeper_layer";
   };
+
+  siblingContext?: Array<{
+    briefId: string;
+    label: string;
+    variationAxis: string;
+    formLanguage: string[];
+  }>;
 };
 
 type SketchPromptBuilderOutput = {
@@ -355,7 +371,7 @@ type SketchPromptBuilderOutput = {
 };
 ```
 
-`sketchStyle` 的判断由 Orchestrator 完成：
+`sessionStyle` 和 `depthContext` 的判断由 Orchestrator 完成：
 
 1. `productDomain`：v1 固定为 `industrial_design`。
 2. `branchStage`：目标节点为 root 或首轮生成时为 `first_layer`，其余为 `deeper_layer`。
@@ -364,17 +380,36 @@ type SketchPromptBuilderOutput = {
 
 这些字段会影响生图 prompt 的视觉表达，例如线稿松紧、细节密度和是否强调方向差异。但它们是后端策略参数，不是需要 LLM 重新推理的上下文。
 
-不再向生图链路传 `siblingContext`。同轮差异由 Brainstorm Assistant 在每个 brief 的 `variationAxis`、`formLanguage` 和 `promptIntent` 中完成；Prompt Builder 只忠实展开单个 brief，避免二次比较兄弟方向导致偏离。
+`siblingContext` 可以随 `SketchGenerationInput` 进入生图链路，主要用于观察和可选 Prompt Writer 的上下文参考。同轮差异仍由 Brainstorm Assistant 在每个 brief 的 `variationAxis`、`formLanguage` 和 `promptIntent` 中完成；默认 Prompt Builder 只忠实展开单个 brief，不重新裁判兄弟方向，避免二次比较导致偏离。
 
-## 4.3 生图网关输入输出
+## 4.3 Image Prompt Writer 输入输出
 
 ```ts
-type SketchGenerationGatewayInput = {
+type ImagePromptWriterInput = {
+  model: string;
+  sketchInput: SketchPromptBuilderInput;
+  fallbackPromptSet: SketchPromptBuilderOutput;
+};
+
+type ImagePromptWriterOutput = {
   briefId: string;
   prompt: string;
   negativePrompt: string;
   promptLanguage: "en";
   visualSummary: string;
+};
+```
+
+Image Prompt Writer 的模型由 `DEEPSEEK_IMAGE_PROMPT_MODEL` 配置；未配置时回退到脑暴模型配置。它只能改写图片模型 prompt、negative prompt 和中文视觉摘要，不能改写 brief、节点关系、分支数量、动作类型或树写入策略。
+
+## 4.4 生图网关输入输出
+
+```ts
+type SketchGenerationGatewayInput = {
+  brief: SketchPromptBuilderInput["brief"];
+  sessionStyle: SketchPromptBuilderInput["sessionStyle"];
+  depthContext: SketchPromptBuilderInput["depthContext"];
+  siblingContext?: SketchPromptBuilderInput["siblingContext"];
 };
 
 type SketchGenerationGatewayOutput = {
@@ -388,11 +423,11 @@ type SketchGenerationGatewayOutput = {
 };
 ```
 
-生图网关不接收完整 brief，也不理解 `displayName`、`variationAxis` 或 `formLanguage` 的业务含义。它只负责把 Prompt Builder 的执行层输入交给图片模型，并把实际使用的 prompt 和图片结果返回给 Orchestrator。
+生图网关接收 `SketchGenerationInput`，先解析出最终 prompt set，再面向图片模型发起请求。最终 prompt set 可能来自确定性 Prompt Builder，也可能来自可选 Image Prompt Writer；无论来源如何，网关都必须把实际使用的 prompt 和图片结果返回给 Orchestrator，且不把树决策权交给图片模型。
 
-## 4.4 Prompt Builder 规则
+## 4.5 Prompt Builder 规则
 
-Prompt Builder 必须使用代码模板从 brief 生成图像 prompt，不调用额外 LLM。模板规则如下：
+Prompt Builder 必须使用代码模板从 brief 生成图像 prompt。它是 v1 默认路径，也是 Image Prompt Writer 失败时的 fallback。模板规则如下：
 
 1. 图像 prompt 使用英文，明确产品类型和工业设计意图。
 2. 必须包含 `displayName`、`intentSummary`、`variationAxis`、`formLanguage` 和 `promptIntent` 表达的核心信息。
@@ -407,12 +442,12 @@ Prompt Builder 必须使用代码模板从 brief 生成图像 prompt，不调用
 
 Prompt Builder 不得改写核心概念、产品品类或 `variationAxis`，也不得自行比较兄弟方向或发明额外变化轴。
 
-## 4.5 职责边界
+## 4.6 职责边界
 
 Prompt Builder 负责：
 
 1. 忠实展开单个 brief。
-2. 将 brief 和 `sketchStyle` 转成稳定的图像 prompt。
+2. 将 brief、`sessionStyle` 和 `depthContext` 转成稳定的图像 prompt。
 3. 生成固定或模板化 negative prompt。
 4. 生成用户可见的中文短视觉摘要。
 
@@ -422,7 +457,13 @@ Sketch Generation Gateway 负责：
 2. 返回图片 URL、`promptUsed`、`negativePromptUsed` 和生成元数据。
 3. 在单个分支失败时返回可记录的错误，让其余分支继续生成和落树。
 
-Prompt Builder 和 Sketch Generation Gateway 不负责：
+Image Prompt Writer 负责：
+
+1. 在调试开关开启时，将结构化 brief 和 fallback prompt 改写成图片模型 prompt。
+2. 输出英文 `prompt`、`negativePrompt` 和中文 `visualSummary`。
+3. 保持产品品类、核心概念和方向差异轴不变。
+
+Prompt Builder、Image Prompt Writer 和 Sketch Generation Gateway 不负责：
 
 1. 判断树怎么长。
 2. 决定本轮有几个分支。

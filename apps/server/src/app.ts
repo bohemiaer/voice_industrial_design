@@ -69,7 +69,7 @@ export async function buildApp(
     );
     reply.header(
       "Access-Control-Allow-Headers",
-      "Content-Type,Authorization"
+      "Content-Type,Authorization,x-siliconflow-api-key"
     );
 
     if (request.method === "OPTIONS") {

@@ -62,11 +62,11 @@ function ChatMessage({
   );
 }
 
-const rootPromptSuggestions = [
-  "我想设计一款桌面智能设备，面向居家办公人群",
-  "它需要解决线缆收纳、提醒和轻量交互问题",
-  "风格希望更温和、轻薄、适合放在书桌上"
-];
+ const rootPromptSuggestions = [
+   "我想设计一款意式半自动咖啡机，适合家庭日常使用",
+   "机身采用极简风格，金属质感搭配木纹面板",
+   "需要具备萃取温控、蒸汽打发和自动清洗功能"
+ ];
 
 function findFirstUserTranscript(messages: Message[]): string | null {
   const firstUserTranscript = messages.find(
@@ -128,8 +128,8 @@ export function ConversationPanel() {
   const targetPromptNodeNumber =
     selectedNode?.publicNodeNumber ?? serverState.nodes[0]?.publicNodeNumber ?? 1;
   const followupPromptSuggestions = [
-    "刷新这一轮的输出",
-    `基于节点 ${targetPromptNodeNumber} 继续进行发散`,
+     "刷新这一轮的输出",
+     `基于节点 ${targetPromptNodeNumber} 继续进行发散`,
     "撤回/重做之前的操作"
   ];
   const prompts = selectedNode
@@ -137,9 +137,9 @@ export function ConversationPanel() {
     : hasConfirmedRootIntent || firstUserTranscript
       ? followupPromptSuggestions
       : rootPromptSuggestions;
-  const inputPlaceholder = firstUserTranscript
-    ? "描述您的下一步需求"
-    : "请根据根节点的提示描述你的产品开始设计吧！";
+   const inputPlaceholder = firstUserTranscript
+     ? "描述您的下一步需求"
+     : "请根据根节点的提示描述你的产品开始设计吧！";
   const thinkingMessage = uiState.isThinking
     ? ({
         id: "optimistic-thinking",

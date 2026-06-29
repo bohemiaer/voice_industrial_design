@@ -1,8 +1,9 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { requireAuth, type AuthenticatedUser } from "../auth.js";
 import { ApiError } from "../errors.js";
+import type { RuntimeApiKeys } from "../agents/types.js";
 import type { Orchestrator } from "../orchestrator/service.js";
 import type { AppServices } from "../repositories/types.js";
 
@@ -31,10 +32,12 @@ export async function registerSessionRoutes(
   app.post("/api/transcriptions", async (request) => {
     requireAuth(request);
     const input = await parseVoiceTurnRequest(request);
+    const runtimeApiKeys = readRuntimeApiKeys(request.headers);
     const transcript = await orchestrator.transcribeAudio({
       transcriptText: input.transcriptText,
       audio: input.audio,
-      mimeType: input.mimeType
+      mimeType: input.mimeType,
+      runtimeApiKeys
     });
 
     return {
@@ -82,12 +85,14 @@ export async function registerSessionRoutes(
     assertSessionOwner(session, currentUser);
 
     const input = await parseVoiceTurnRequest(request);
+    const runtimeApiKeys = readRuntimeApiKeys(request.headers);
     const result = await orchestrator.processVoiceTurn({
       sessionId,
       transcriptText: input.transcriptText,
       audio: input.audio,
       mimeType: input.mimeType,
-      targetNodeId: input.targetNodeId
+      targetNodeId: input.targetNodeId,
+      runtimeApiKeys
     });
 
     return reply.status(202).send({
@@ -96,7 +101,7 @@ export async function registerSessionRoutes(
     });
   });
 
-  app.post("/api/sessions/:sessionId/undo", async (request) => {
+  const handleUndoRequest = async (request: FastifyRequest) => {
     const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
     const session = await services.repositories.sessions.getById(sessionId);
@@ -108,10 +113,6 @@ export async function registerSessionRoutes(
       operationId: null,
       taskId: null
     };
-    const taskOperation =
-      taskId != null
-        ? await services.repositories.treeOperations.getByTaskId(taskId)
-        : null;
     const undoOperation = await orchestrator.undoSession({
       sessionId,
       operationId: operationId ?? null,
@@ -121,9 +122,9 @@ export async function registerSessionRoutes(
     return {
       operation: undoOperation
     };
-  });
+  };
 
-  app.post("/api/sessions/:sessionId/redo", async (request) => {
+  const handleRedoRequest = async (request: FastifyRequest) => {
     const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
     const session = await services.repositories.sessions.getById(sessionId);
@@ -133,7 +134,27 @@ export async function registerSessionRoutes(
     return {
       operation
     };
-  });
+  };
+
+  app.post("/api/sessions/:sessionId/undo", handleUndoRequest);
+  app.get("/api/sessions/:sessionId/undo", handleUndoRequest);
+  app.post("/api/sessions/:sessionId/redo", handleRedoRequest);
+  app.get("/api/sessions/:sessionId/redo", handleRedoRequest);
+}
+
+function readRuntimeApiKeys(headers: Record<string, unknown>): RuntimeApiKeys | undefined {
+  const siliconFlowApiKeyHeader = headers["x-siliconflow-api-key"];
+  const siliconFlowApiKey = Array.isArray(siliconFlowApiKeyHeader)
+    ? siliconFlowApiKeyHeader[0]
+    : siliconFlowApiKeyHeader;
+
+  if (typeof siliconFlowApiKey !== "string" || siliconFlowApiKey.trim().length === 0) {
+    return undefined;
+  }
+
+  return {
+    siliconFlowApiKey: siliconFlowApiKey.trim()
+  };
 }
 
 function assertSessionOwner<T extends { ownerUserId: string }>(

@@ -201,6 +201,17 @@ test("workbench page keeps the existing flow workspace on a dedicated route", ()
   assert.match(workbenchPageSource, /<main className="workbench-page">/);
 });
 
+test("workbench route blocks interaction with a mandatory local API gate before session init", () => {
+  assert.match(workbenchPageSource, /WORKBENCH_API_STORAGE_KEY/);
+  assert.match(workbenchPageSource, /ApiKeyGateDialog/);
+  assert.match(workbenchPageSource, /请填写 API/);
+  assert.match(workbenchPageSource, /https:\/\/cloud\.siliconflow\.cn\/i\/pUZUB64c/);
+  assert.match(workbenchPageSource, /localStorage/);
+  assert.match(workbenchPageSource, /initializeApiSession\(\)/);
+  assert.match(workbenchPageSource, /if \(!hasStoredApiKey\)/);
+  assert.doesNotMatch(workbenchPageSource, /setAccessTokenProvider\(null\);\s*void initializeApiSession\(\);/);
+});
+
 test("frontend workbench uses react flow and zustand", () => {
   assert.match(webPackage, /"dev": "next dev --turbo -H 127\.0\.0\.1"/);
   assert.match(webPackage, /"@xyflow\/react"/);
@@ -248,8 +259,10 @@ test("workbench route starts the live workspace without login gating", () => {
 
 test("workbench api client attaches Supabase bearer tokens to json and form requests", () => {
   assert.match(apiSource, /setAccessTokenProvider/);
+  assert.match(apiSource, /setSiliconFlowApiKeyProvider/);
   assert.match(apiSource, /Authorization/);
   assert.match(apiSource, /Bearer \$\{accessToken\}/);
+  assert.match(apiSource, /x-siliconflow-api-key/);
   assert.match(apiSource, /requestJson/);
   assert.match(apiSource, /requestForm/);
 });
@@ -268,7 +281,7 @@ test("canvas lays out generated nodes as a vertical tree without obsolete toolba
   assert.match(canvasWorkspaceSource, /handleToggleGlobalPreview/);
   assert.match(canvasWorkspaceSource, /handleExportImages/);
   assert.match(canvasWorkspaceSource, /await import\("jszip"\)/);
-  assert.match(canvasWorkspaceSource, /voice-painting-images-/);
+  assert.match(canvasWorkspaceSource, /voice-painting-node-cards-/);
   assert.match(canvasWorkspaceSource, /viewportAspectRatio/);
   assert.match(canvasWorkspaceSource, /expandedWidth = Math\.max\(bounds\.width \* 2, 720\)/);
   assert.match(canvasWorkspaceSource, /expandedHeight = Math\.max\(/);
@@ -626,6 +639,19 @@ test("toolbar supports global preview toggle, zoom controls, and zip export", ()
   assert.match(canvasWorkspaceSource, /zoomIn\(\{ duration: 240 \}\)/);
   assert.match(canvasWorkspaceSource, /setViewport\(viewportSnapshotRef\.current, \{ duration: 360 \}\)/);
   assert.match(canvasWorkspaceSource, /fitView\(\{ padding: 0\.16, minZoom: 0\.34, maxZoom: 0\.82, duration: 420 \}\)/);
+  assert.match(canvasWorkspaceSource, /function createNodeExportSvg\(node: TreeNode, imageHref: string\): string/);
+  assert.match(canvasWorkspaceSource, /async function renderNodeExportImage\(node: TreeNode\): Promise<Blob>/);
+  assert.match(canvasWorkspaceSource, /resolveExportImageHref\(node\.imageUrl\)/);
+  assert.match(canvasWorkspaceSource, /节点 \$\{node\.publicNodeNumber\}/);
+  assert.match(canvasWorkspaceSource, /node\.displayName/);
+  assert.match(canvasWorkspaceSource, /node\.intentSummary/);
+  assert.doesNotMatch(canvasWorkspaceSource, /node\.formLanguage/);
+  assert.doesNotMatch(canvasWorkspaceSource, /node\.userNeedResponse/);
+  assert.doesNotMatch(canvasWorkspaceSource, /node\.inspirationHints/);
+  assert.doesNotMatch(canvasWorkspaceSource, /toBlob/);
+  assert.doesNotMatch(canvasWorkspaceSource, /export-errors\.txt/);
+  assert.match(canvasWorkspaceSource, /node-card-\$\{node\.publicNodeNumber\}-\$\{sanitizeFileSegment\(node\.displayName\)\}\.svg/);
+  assert.match(canvasWorkspaceSource, /voice-painting-node-cards-/);
   assert.match(canvasWorkspaceSource, /disabled=\{isExporting \|\| serverState\.nodes\.every\(\(node\) => !node\.imageUrl\)\}/);
   assert.match(canvasWorkspaceSource, /panOnDrag/);
 });

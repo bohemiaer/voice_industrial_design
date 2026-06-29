@@ -461,7 +461,9 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .where(eq(treeOperationsTable.taskId, taskId))
           .orderBy(desc(treeOperationsTable.createdAt))
           .limit(10);
-        const operation = rows.find((row) => row.type !== "undo");
+        const operation = rows.find(
+          (row) => row.type !== "undo" && row.type !== "redo"
+        );
         return operation ? mapTreeOperation(operation) : null;
       },
       async getLastUndoableBySessionId(

@@ -17,6 +17,8 @@ import {
 
 import type {
   AgentGateway,
+  ChatAssistantRequest,
+  MemorySummarizerRequest,
   TranscribeAudioInput,
   TranscribeAudioOutput
 } from "./types.js";
@@ -96,7 +98,7 @@ export class MockAgentGateway implements AgentGateway {
   }
 
   async runChatAssistant(
-    input: ChatAssistantInput
+    input: ChatAssistantRequest
   ): Promise<ChatAssistantOutput> {
     const target = input.selectedNode
       ? `当前节点“${input.selectedNode.displayName}”的方向是：${input.selectedNode.intentSummary}`
@@ -108,7 +110,7 @@ export class MockAgentGateway implements AgentGateway {
   }
 
   async runMemorySummarizer(
-    input: MemorySummarizerInput
+    input: MemorySummarizerRequest
   ): Promise<MemorySummarizerOutput> {
     return MemorySummarizerOutputSchema.parse({
       stablePreferences: input.previousMemory?.stablePreferences ?? [],

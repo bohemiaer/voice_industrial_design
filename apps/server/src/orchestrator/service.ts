@@ -17,10 +17,15 @@ import {
   type VisualDirectionBrief
 } from "@voice-industrial-design/shared";
 
-import type { AgentGateway } from "../agents/types.js";
-import type { TranscribeAudioInput, TranscribeAudioOutput } from "../agents/types.js";
+import type {
+  AgentGateway,
+  RuntimeApiKeys,
+  TranscribeAudioInput,
+  TranscribeAudioOutput
+} from "../agents/types.js";
 import type { AppConfig } from "../config.js";
 import { ApiError } from "../errors.js";
+import { recordAgentObservation } from "../observability/agent-observation.js";
 import type { AppServices } from "../repositories/types.js";
 
 const MEMORY_TRIGGER_TURN_COUNT = 6;
@@ -31,6 +36,7 @@ export interface ProcessVoiceTurnInput {
   audio?: Buffer;
   mimeType?: string;
   targetNodeId: string | null;
+  runtimeApiKeys?: RuntimeApiKeys;
 }
 
 export interface ProcessVoiceTurnResult {
@@ -74,10 +80,11 @@ export function createOrchestrator(
       const transcriptText = input.transcriptText?.trim();
       const transcript = transcriptText
         ? { transcriptText }
-        : await agentGateway.transcribeAudio({
+          : await agentGateway.transcribeAudio({
             transcriptText: input.transcriptText,
             audio: input.audio,
-            mimeType: input.mimeType
+            mimeType: input.mimeType,
+            runtimeApiKeys: input.runtimeApiKeys
           });
       const runningTask = await services.repositories.generationTasks.getRunningBySessionId(
         input.sessionId
@@ -176,6 +183,7 @@ export function createOrchestrator(
           agentGateway,
           session,
           transcriptText: transcript.transcriptText,
+          runtimeApiKeys: input.runtimeApiKeys,
           chatType,
           targetNode: targetContext.targetNode,
           treeNodes,
@@ -195,9 +203,25 @@ export function createOrchestrator(
         conversationMemory,
         actionType: turnIntent
       });
+      recordAgentObservation("brainstorm_assistant.input", {
+        sessionId: session.id,
+        selectedNodeId: targetContext.selectedNodeId,
+        transcriptText: transcript.transcriptText,
+        assistantInput
+      });
+      const rawAssistantOutput =
+        await agentGateway.runBrainstormAssistant({
+          ...assistantInput,
+          runtimeApiKeys: input.runtimeApiKeys
+        });
+      recordAgentObservation("brainstorm_assistant.output", {
+        sessionId: session.id,
+        selectedNodeId: targetContext.selectedNodeId,
+        rawAssistantOutput
+      });
       const assistantOutput = BrainstormAssistantOutputSchema.parse(
         normalizeAssistantOutput(
-          await agentGateway.runBrainstormAssistant(assistantInput),
+          rawAssistantOutput,
           transcript.transcriptText,
           config,
           assistantInput.constraints.defaultBranchCount
@@ -209,6 +233,12 @@ export function createOrchestrator(
         config,
         transcriptText: transcript.transcriptText,
         defaultBranchCount: assistantInput.constraints.defaultBranchCount
+      });
+      recordAgentObservation("prompt_router.input", {
+        sessionId: session.id,
+        selectedNodeId: targetContext.selectedNodeId,
+        transcriptText: transcript.transcriptText,
+        assistantOutput
       });
 
       const task = await services.repositories.generationTasks.create({
@@ -263,6 +293,18 @@ export function createOrchestrator(
         ...task,
         branchTasks
       };
+      recordAgentObservation("prompt_router.output", {
+        sessionId: session.id,
+        taskId: queuedTask.id,
+        actionType: assistantOutput.actionType,
+        targetNodeId: assistantOutput.targetNodeId,
+        branchTasks: queuedTask.branchTasks.map((branchTask, branchIndex) => ({
+          id: branchTask.id,
+          branchIndex,
+          status: branchTask.status,
+          brief: branchTask.brief
+        }))
+      });
 
       void executeTaskGeneration({
         services,
@@ -278,7 +320,8 @@ export function createOrchestrator(
           assistantSummaryMessage
         ]),
         actionType: assistantOutput.actionType,
-        briefs: branchTasks.map((branchTask) => branchTask.brief)
+        briefs: branchTasks.map((branchTask) => branchTask.brief),
+        runtimeApiKeys: input.runtimeApiKeys
       });
 
       return {
@@ -310,6 +353,7 @@ async function executeChatTurn(input: {
   agentGateway: AgentGateway;
   session: Session;
   transcriptText: string;
+  runtimeApiKeys?: RuntimeApiKeys;
   chatType: ChatAssistantInput["chatType"];
   targetNode: TreeNode | null;
   treeNodes: TreeNode[];
@@ -340,7 +384,8 @@ async function executeChatTurn(input: {
       nodeId: node.id,
       displayName: node.displayName,
       intentSummary: node.intentSummary
-    }))
+    })),
+    runtimeApiKeys: input.runtimeApiKeys
   });
 
   const assistantMessage = await input.services.repositories.messages.create({
@@ -356,6 +401,7 @@ async function executeChatTurn(input: {
     agentGateway: input.agentGateway,
     session: input.session,
     targetNode: input.targetNode,
+    runtimeApiKeys: input.runtimeApiKeys,
     messages: [
       ...input.sessionMessages,
       userTranscriptMessage,
@@ -424,6 +470,7 @@ async function executeTaskGeneration(input: {
   conversationHistory: BrainstormAssistantInput["conversationHistory"];
   actionType: BrainstormAssistantOutput["actionType"];
   briefs: VisualDirectionBrief[];
+  runtimeApiKeys?: RuntimeApiKeys;
 }): Promise<void> {
   try {
     await persistGeneratedBranches(input);
@@ -633,6 +680,7 @@ async function maybeCreateConversationMemory(input: {
   agentGateway: AgentGateway;
   session: Session;
   targetNode: TreeNode | null;
+  runtimeApiKeys?: RuntimeApiKeys;
   messages: Message[];
 }): Promise<void> {
   if (countDialogueTurns(input.messages) <= MEMORY_TRIGGER_TURN_COUNT) {
@@ -937,6 +985,7 @@ async function persistGeneratedBranches(input: {
   conversationHistory: BrainstormAssistantInput["conversationHistory"];
   actionType: BrainstormAssistantOutput["actionType"];
   briefs: VisualDirectionBrief[];
+  runtimeApiKeys?: RuntimeApiKeys;
 }): Promise<GenerationTask> {
   const generatingTask = await input.services.repositories.generationTasks.updateStatus({
     taskId: input.task.id,
@@ -1003,7 +1052,8 @@ async function persistGeneratedBranches(input: {
 
       try {
         const sketch = await input.agentGateway.generateSketch(
-          buildSketchInput({
+          {
+            ...buildSketchInput({
             brief,
             depth,
             siblingBriefs: input.briefs,
@@ -1011,7 +1061,9 @@ async function persistGeneratedBranches(input: {
             conversationHistory: input.conversationHistory,
             targetNode: input.targetNode,
             treeNodes: input.treeNodes
-          })
+            }),
+            runtimeApiKeys: input.runtimeApiKeys
+          }
         );
         await input.services.repositories.branchTasks.update({
           branchTaskId: branchTask.id,
@@ -1299,6 +1351,7 @@ async function executeUndoSession(input: {
   const operation =
     requestedOperation?.sessionId === input.sessionId &&
     requestedOperation.type !== "undo" &&
+    requestedOperation.type !== "redo" &&
     requestedOperation.id === latestUndoableOperation?.id
       ? requestedOperation
       : latestUndoableOperation;

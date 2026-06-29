@@ -14,16 +14,25 @@ import {
 } from "@voice-industrial-design/shared";
 
 import type { AppConfig } from "../config.js";
+import { recordAgentObservation } from "../observability/agent-observation.js";
 import {
   AgentGatewayError,
   type AgentGateway,
+  type BrainstormAgentInput,
+  type ChatAssistantRequest,
+  type MemorySummarizerRequest,
+  type RuntimeApiKeys,
+  type SketchGenerationRequest,
   type TranscribeAudioInput,
   type TranscribeAudioOutput
 } from "./types.js";
-import { buildSketchPromptSet } from "./sketch-prompt-builder.js";
+import {
+  buildSketchPromptSet
+} from "./sketch-prompt-builder.js";
 
 const REQUEST_TIMEOUT_MS = 120_000;
 const MAX_ATTEMPTS = 2;
+const SKETCH_IMAGE_SIZE = "768x512";
 
 type FetchLike = typeof fetch;
 
@@ -89,7 +98,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       "/audio/transcriptions",
       {
         method: "POST",
-        headers: this.authHeaders(),
+        headers: this.authHeaders(input.runtimeApiKeys),
         body: formData
       }
     );
@@ -107,7 +116,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   }
 
   async runBrainstormAssistant(
-    input: BrainstormAssistantInput
+    input: BrainstormAgentInput
   ): Promise<BrainstormAssistantOutput> {
     const canUseDeepSeekDirectly =
       this.config.deepSeekApiKey &&
@@ -151,7 +160,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   }
 
   private async runSiliconFlowBrainstormAssistant(
-    input: BrainstormAssistantInput
+    input: BrainstormAgentInput
   ): Promise<BrainstormAssistantOutput> {
     const model = this.requireConfig(
       this.config.siliconFlowBrainstormModel,
@@ -162,7 +171,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       "/chat/completions",
       {
         method: "POST",
-        headers: this.jsonHeaders(),
+        headers: this.jsonHeaders(input.runtimeApiKeys),
         body: JSON.stringify({
           model,
           messages: buildBrainstormMessages(input),
@@ -213,14 +222,26 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   }
 
   async runChatAssistant(
-    input: ChatAssistantInput
+    input: ChatAssistantRequest
   ): Promise<ChatAssistantOutput> {
+    const hasRuntimeApiKey = Boolean(
+      input.runtimeApiKeys?.siliconFlowApiKey?.trim()
+    );
+
+    const canUseSiliconFlow =
+      hasRuntimeApiKey ||
+      Boolean(this.config.siliconFlowApiKey?.trim());
+
+    if (canUseSiliconFlow) {
+      return this.runSiliconFlowChatAssistant(input);
+    }
+
     const response = await this.requestDeepSeekChatCompletion(
       buildChatAssistantMessages(input)
     );
-    const content = response.choices?.[0]?.message?.content;
+    const dcontent = response.choices?.[0]?.message?.content;
 
-    if (!content) {
+    if (!dcontent) {
       throw new AgentGatewayError(
         "DeepSeek chat response did not include message content.",
         "DEEPSEEK_CHAT_RESPONSE_INVALID"
@@ -228,7 +249,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     }
 
     try {
-      return ChatAssistantOutputSchema.parse(parseAssistantJson(content));
+      return ChatAssistantOutputSchema.parse(parseAssistantJson(dcontent));
     } catch (error) {
       throw new AgentGatewayError(
         "DeepSeek chat response did not match the Chat Assistant schema.",
@@ -238,15 +259,70 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     }
   }
 
-  async runMemorySummarizer(
-    input: MemorySummarizerInput
-  ): Promise<MemorySummarizerOutput> {
-    const response = await this.requestDeepSeekChatCompletion(
-      buildMemorySummarizerMessages(input)
+  private async runSiliconFlowChatAssistant(
+    input: ChatAssistantRequest
+  ): Promise<ChatAssistantOutput> {
+    const model = this.requireConfig(
+      this.config.siliconFlowChatModel,
+      "SILICONFLOW_CHAT_MODEL"
     );
+
+    const response = await this.requestJson<ChatCompletionResponse>(
+      "/chat/completions",
+      {
+        method: "POST",
+        headers: this.jsonHeaders(input.runtimeApiKeys),
+        body: JSON.stringify({
+          model,
+          messages: buildChatAssistantMessages(input),
+          response_format: {
+            type: "json_object"
+          }
+        })
+      }
+    );
+
     const content = response.choices?.[0]?.message?.content;
 
     if (!content) {
+      throw new AgentGatewayError(
+        "SiliconFlow chat response did not include message content.",
+        "SILICONFLOW_RESPONSE_INVALID"
+      );
+    }
+
+    try {
+      return ChatAssistantOutputSchema.parse(parseAssistantJson(content));
+    } catch (error) {
+      throw new AgentGatewayError(
+        "SiliconFlow chat response did not match the Chat Assistant schema.",
+        "SILICONFLOW_RESPONSE_INVALID",
+        error
+      );
+    }
+  }
+
+  async runMemorySummarizer(
+    input: MemorySummarizerRequest
+  ): Promise<MemorySummarizerOutput> {
+    const hasRuntimeApiKey = Boolean(
+      input.runtimeApiKeys?.siliconFlowApiKey?.trim()
+    );
+
+    const canUseSiliconFlow =
+      hasRuntimeApiKey ||
+      Boolean(this.config.siliconFlowApiKey?.trim());
+
+    if (canUseSiliconFlow) {
+      return this.runSiliconFlowMemorySummarizer(input);
+    }
+
+    const response = await this.requestDeepSeekChatCompletion(
+      buildMemorySummarizerMessages(input)
+    );
+    const dcontent = response.choices?.[0]?.message?.content;
+
+    if (!dcontent) {
       throw new AgentGatewayError(
         "DeepSeek memory response did not include message content.",
         "DEEPSEEK_MEMORY_RESPONSE_INVALID"
@@ -254,7 +330,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     }
 
     try {
-      return MemorySummarizerOutputSchema.parse(parseAssistantJson(content));
+      return MemorySummarizerOutputSchema.parse(parseAssistantJson(dcontent));
     } catch (error) {
       throw new AgentGatewayError(
         "DeepSeek memory response did not match the Memory Summarizer schema.",
@@ -264,26 +340,78 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     }
   }
 
+  private async runSiliconFlowMemorySummarizer(
+    input: MemorySummarizerRequest
+  ): Promise<MemorySummarizerOutput> {
+    const model = this.requireConfig(
+      this.config.siliconFlowChatModel,
+      "SILICONFLOW_CHAT_MODEL"
+    );
+
+    const response = await this.requestJson<ChatCompletionResponse>(
+      "/chat/completions",
+      {
+        method: "POST",
+        headers: this.jsonHeaders(input.runtimeApiKeys),
+        body: JSON.stringify({
+          model,
+          messages: buildMemorySummarizerMessages(input),
+          response_format: {
+            type: "json_object"
+          }
+        })
+      }
+    );
+
+    const content = response.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new AgentGatewayError(
+        "SiliconFlow memory response did not include message content.",
+        "SILICONFLOW_RESPONSE_INVALID"
+      );
+    }
+
+    try {
+      return MemorySummarizerOutputSchema.parse(parseAssistantJson(content));
+    } catch (error) {
+      throw new AgentGatewayError(
+        "SiliconFlow memory response did not match the Memory Summarizer schema.",
+        "SILICONFLOW_RESPONSE_INVALID",
+        error
+      );
+    }
+  }
+
   async generateSketch(
-    input: SketchGenerationInput
+    input: SketchGenerationRequest
   ): Promise<SketchGenerationOutput> {
     const model = this.requireConfig(
       this.config.siliconFlowImageModel,
       "SILICONFLOW_IMAGE_MODEL"
     );
     const promptSet = buildSketchPromptSet(input);
+    const imageRequest = {
+      model,
+      prompt: promptSet.prompt,
+      negative_prompt: promptSet.negativePrompt,
+      image_size: SKETCH_IMAGE_SIZE,
+      batch_size: 1
+    };
+    recordAgentObservation("image_assistant.input", {
+      model,
+      briefId: input.brief.briefId,
+      sketchInput: input,
+      promptSet,
+      imageRequest
+    });
 
     const response = await this.requestJson<ImageGenerationResponse>(
       "/images/generations",
       {
         method: "POST",
-        headers: this.jsonHeaders(),
-        body: JSON.stringify({
-          model,
-          prompt: promptSet.prompt,
-          negative_prompt: promptSet.negativePrompt,
-          batch_size: 1
-        })
+        headers: this.jsonHeaders(input.runtimeApiKeys),
+        body: JSON.stringify(imageRequest)
       }
     );
 
@@ -296,7 +424,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       );
     }
 
-    return SketchGenerationOutputSchema.parse({
+    const sketchOutput = SketchGenerationOutputSchema.parse({
       imageId: `siliconflow-${response.seed ?? input.brief.briefId}`,
       briefId: input.brief.briefId,
       imageUrl,
@@ -304,6 +432,13 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       negativePromptUsed: promptSet.negativePrompt,
       visualSummary: promptSet.visualSummary
     });
+    recordAgentObservation("image_assistant.output", {
+      model,
+      briefId: input.brief.briefId,
+      sketchOutput
+    });
+
+    return sketchOutput;
   }
 
   private async requestJson<T>(
@@ -463,18 +598,20 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
   }
 
-  private authHeaders(): Record<string, string> {
+  private authHeaders(runtimeApiKeys?: RuntimeApiKeys): Record<string, string> {
+    const runtimeApiKey = runtimeApiKeys?.siliconFlowApiKey?.trim();
+
     return {
       authorization: `Bearer ${this.requireConfig(
-        this.config.siliconFlowApiKey,
+        runtimeApiKey || this.config.siliconFlowApiKey,
         "SILICONFLOW_API_KEY"
       )}`
     };
   }
 
-  private jsonHeaders(): Record<string, string> {
+  private jsonHeaders(runtimeApiKeys?: RuntimeApiKeys): Record<string, string> {
     return {
-      ...this.authHeaders(),
+      ...this.authHeaders(runtimeApiKeys),
       "content-type": "application/json"
     };
   }

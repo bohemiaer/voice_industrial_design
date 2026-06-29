@@ -36,6 +36,9 @@ const API_BASE_URL = resolveApiBaseUrl();
 
 let accessTokenProvider: (() => Promise<string | null> | string | null) | null =
   null;
+let siliconFlowApiKeyProvider:
+  | (() => Promise<string | null> | string | null)
+  | null = null;
 
 type CreateSessionResponse = {
   session: Session;
@@ -71,6 +74,12 @@ export function setAccessTokenProvider(
   provider: (() => Promise<string | null> | string | null) | null
 ): void {
   accessTokenProvider = provider;
+}
+
+export function setSiliconFlowApiKeyProvider(
+  provider: (() => Promise<string | null> | string | null) | null
+): void {
+  siliconFlowApiKeyProvider = provider;
 }
 
 class ApiClientError extends Error {
@@ -110,12 +119,21 @@ async function createAuthHeaders(): Promise<Record<string, string>> {
   const accessToken = accessTokenProvider
     ? await accessTokenProvider()
     : null;
+  const siliconFlowApiKey = siliconFlowApiKeyProvider
+    ? await siliconFlowApiKeyProvider()
+    : null;
 
-  return accessToken
-    ? {
-        Authorization: `Bearer ${accessToken}`
-      }
-    : {};
+  const headers: Record<string, string> = {};
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  if (siliconFlowApiKey) {
+    headers["x-siliconflow-api-key"] = siliconFlowApiKey;
+  }
+
+  return headers;
 }
 
 async function requestJson<T>(
@@ -275,7 +293,8 @@ export async function requestSessionRedo(
   const response = await requestJson<TreeOperationResponse>(
     `/api/sessions/${sessionId}/redo`,
     {
-      method: "POST"
+      method: "POST",
+      body: JSON.stringify({})
     }
   );
 

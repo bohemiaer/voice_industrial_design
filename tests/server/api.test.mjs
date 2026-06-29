@@ -151,7 +151,8 @@ async function submitVoiceTurnWithRetry(
   app,
   sessionId,
   payload,
-  attempts = 5
+  attempts = 5,
+  headers = {}
 ) {
   let lastResponse = null;
 
@@ -159,7 +160,8 @@ async function submitVoiceTurnWithRetry(
     const response = await app.inject({
       method: "POST",
       url: `/api/sessions/${sessionId}/voice-turns`,
-      payload
+      payload,
+      headers
     });
 
     lastResponse = response;
@@ -251,6 +253,83 @@ test("protected APIs reject requests without auth", async () => {
 
   assert.equal(response.statusCode, 401);
   assert.equal(response.json().error.code, "AUTH_REQUIRED");
+
+  await app.close();
+});
+
+test("voice turns forward a request-scoped SiliconFlow API key to the agent gateway", async () => {
+  const observed = {
+    siliconFlowApiKey: null
+  };
+  const app = await createTestAppWithGateway({
+    async transcribeAudio(input) {
+      observed.siliconFlowApiKey = input.runtimeApiKeys?.siliconFlowApiKey ?? null;
+      return {
+        transcriptText: input.transcriptText ?? "围绕这个目标先发散三个方向"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      observed.siliconFlowApiKey = input.runtimeApiKeys?.siliconFlowApiKey ?? null;
+      return {
+        actionType: "expand_branches",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 3,
+        designIntentSummary: "围绕当前方向继续展开。",
+        assistantReply: "现在基于当前节点生成三个方向。",
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `方向 ${index + 1}`,
+          intentSummary: `探索方向 ${index + 1}`,
+          formLanguage: ["轻薄"],
+          userNeedResponse: ["降低桌面压迫感"],
+          inspirationHints: ["办公设备"],
+          suggestedFollowups: ["继续细化比例", "强化材质方向", "探索交互细节"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch(input) {
+      return {
+        imageId: `image-${input.brief.briefId}`,
+        briefId: input.brief.briefId,
+        imageUrl: `https://example.com/${input.brief.briefId}.png`,
+        promptUsed: input.brief.promptIntent,
+        negativePromptUsed: "photorealistic",
+        visualSummary: `${input.brief.displayName} 草图`
+      };
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "请求级 API Key",
+      goal: "验证请求头里的 SiliconFlow key 会被转发"
+    }
+  });
+  assert.equal(createSessionResponse.statusCode, 201);
+  const sessionId = createSessionResponse.json().session.id;
+
+  const response = await submitVoiceTurnWithRetry(
+    app,
+    sessionId,
+    {
+      transcriptText: "围绕这个目标先发散三个方向",
+      targetNodeId: null
+    },
+    1,
+    {
+      "x-siliconflow-api-key": "sf-live-from-browser"
+    }
+  );
+
+  assert.equal(response.statusCode, 202);
+  assert.equal(observed.siliconFlowApiKey, "sf-live-from-browser");
 
   await app.close();
 });
@@ -768,6 +847,36 @@ test("undo endpoint fails cleanly when no confirmed tree operation exists", asyn
 
   assert.equal(undoResponse.statusCode, 409);
   assert.equal(undoResponse.json().error.code, "UNDO_NOT_AVAILABLE");
+
+  await app.close();
+});
+
+test("undo and redo routes accept legacy GET requests without returning route 404", async () => {
+  const app = await createTestApp();
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "便携音箱",
+      goal: "探索便携音箱的首轮概念方向"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const undoResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/undo`
+  });
+  const redoResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/redo`
+  });
+
+  assert.equal(undoResponse.statusCode, 409);
+  assert.equal(undoResponse.json().error.code, "UNDO_NOT_AVAILABLE");
+  assert.equal(redoResponse.statusCode, 409);
+  assert.equal(redoResponse.json().error.code, "REDO_NOT_AVAILABLE");
 
   await app.close();
 });
@@ -1334,6 +1443,12 @@ liveTest("redo reapplies the last undone refresh operation", async () => {
   });
   assert.equal(undoResponse.statusCode, 200);
 
+  const undoneTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const undoneNodeIds = undoneTree.json().nodes.map((node) => node.id).sort();
+
   const redoResponse = await app.inject({
     method: "POST",
     url: `/api/sessions/${session.id}/redo`
@@ -1347,6 +1462,20 @@ liveTest("redo reapplies the last undone refresh operation", async () => {
   });
   const redoneNodeIds = redoneTree.json().nodes.map((node) => node.id).sort();
   assert.deepEqual(redoneNodeIds, refreshedNodeIds);
+
+  const undoAfterRedoResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/undo`
+  });
+  assert.equal(undoAfterRedoResponse.statusCode, 200);
+  assert.equal(undoAfterRedoResponse.json().operation.type, "undo");
+
+  const undoneAgainTree = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  const undoneAgainNodeIds = undoneAgainTree.json().nodes.map((node) => node.id).sort();
+  assert.deepEqual(undoneAgainNodeIds, undoneNodeIds);
 
   const messagesResponse = await app.inject({
     method: "GET",
@@ -1380,7 +1509,7 @@ test("undo route can target a specific client-selected tree operation", () => {
   assert.match(sessionRoutesSource, /operationId \?\? null/);
   assert.match(sessionRoutesSource, /taskId \?\? null/);
   assert.match(sessionRoutesSource, /getById\(/);
-  assert.match(sessionRoutesSource, /getByTaskId\(/);
+  assert.match(sessionRoutesSource, /orchestrator\.undoSession/);
 });
 
 test("server supports multipart audio voice turns", () => {
@@ -2158,4 +2287,41 @@ test("voice turns skip image generation entirely when the image model is disable
 
 test("SiliconFlow requests wait up to two minutes before timing out", () => {
   assert.match(siliconFlowSource, /REQUEST_TIMEOUT_MS = 120_000/);
+});
+
+test("server emits structured observation logs for agent inputs and outputs", () => {
+  assert.match(orchestratorSource, /recordAgentObservation/);
+  assert.match(orchestratorSource, /"brainstorm_assistant\.input"/);
+  assert.match(orchestratorSource, /"brainstorm_assistant\.output"/);
+  assert.match(orchestratorSource, /"prompt_router\.input"/);
+  assert.match(orchestratorSource, /"prompt_router\.output"/);
+  assert.match(siliconFlowSource, /recordAgentObservation/);
+  assert.match(siliconFlowSource, /"image_assistant\.input"/);
+  assert.match(siliconFlowSource, /imageRequest/);
+  assert.match(siliconFlowSource, /"image_assistant\.output"/);
+});
+
+test("agent observations are also appended to a human-readable markdown file", () => {
+  const observationSource = readSource(
+    "apps/server/src/observability/agent-observation.ts"
+  );
+
+  assert.match(observationSource, /agent-observation\.md/);
+  assert.match(observationSource, /appendFileSync/);
+  assert.match(observationSource, /脑暴助理输入/);
+  assert.match(observationSource, /生图助理输出/);
+  assert.match(observationSource, /formatReadableTimestamp/);
+  assert.match(observationSource, /GMT\+8/);
+  assert.match(observationSource, /完整 payload/);
+});
+
+test("agent observation markdown writes are best-effort", () => {
+  const observationSource = readSource(
+    "apps/server/src/observability/agent-observation.ts"
+  );
+
+  assert.match(observationSource, /process\.env\.VERCEL/);
+  assert.match(observationSource, /try\s*{/);
+  assert.match(observationSource, /catch/);
+  assert.match(observationSource, /console\.warn/);
 });

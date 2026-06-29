@@ -57,6 +57,9 @@ const edgeTypes = {
   workbenchBezier: WorkbenchBezierEdge
 } satisfies EdgeTypes;
 
+const exportCardWidth = 400;
+const exportCardHeight = 470;
+
 function resolveRootNodeLabel(
   session: { title: string; goal: string },
   rootIntentSummary: string
@@ -80,6 +83,137 @@ function findFirstUserTranscript(messages: Array<{
   );
 
   return firstUserTranscript?.content ?? null;
+}
+
+function sanitizeFileSegment(value: string): string {
+  return value.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 80);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function fetchImageDataUrl(imageUrl: string): Promise<string> {
+  const response = await fetch(imageUrl);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return readBlobAsDataUrl(await response.blob());
+}
+
+async function resolveExportImageHref(imageUrl: string): Promise<string> {
+  try {
+    return await fetchImageDataUrl(imageUrl);
+  } catch {
+    return imageUrl;
+  }
+}
+
+function wrapExportText(value: string, maxCharacters: number, maxLines: number): string[] {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const lines: string[] = [];
+  let current = "";
+
+  for (const character of normalized) {
+    if (current.length >= maxCharacters) {
+      lines.push(current);
+      current = "";
+    }
+
+    current += character;
+
+    if (lines.length === maxLines) {
+      break;
+    }
+  }
+
+  if (current && lines.length < maxLines) {
+    lines.push(current);
+  }
+
+  if (lines.length === maxLines && normalized.length > lines.join("").length) {
+    lines[maxLines - 1] = `${lines[maxLines - 1].slice(0, -1)}...`;
+  }
+
+  return lines;
+}
+
+function renderExportTspans(input: {
+  lines: string[];
+  x: number;
+  y: number;
+  lineHeight: number;
+}): string {
+  return input.lines
+    .map((line, index) => {
+      if (index === 0) {
+        return `<tspan x="${input.x}" y="${input.y}">${escapeHtml(line)}</tspan>`;
+      }
+
+      return `<tspan x="${input.x}" dy="${input.lineHeight}">${escapeHtml(line)}</tspan>`;
+    })
+    .join("");
+}
+
+function createNodeExportSvg(node: TreeNode, imageHref: string): string {
+  const titleLines = wrapExportText(node.displayName, 11, 2);
+  const summaryLines = wrapExportText(node.intentSummary, 17, 3);
+  const summaryY = 146 + Math.max(titleLines.length - 1, 0) * 32;
+  const imageY = Math.min(summaryY + summaryLines.length * 28 + 26, 220);
+
+  // SVG is exported directly to avoid tainted canvas failures from cross-origin generated images.
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="${exportCardWidth}" height="${exportCardHeight}" viewBox="0 0 ${exportCardWidth} ${exportCardHeight}">
+  <defs>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1d232b" flood-opacity="0.10"/>
+    </filter>
+    <clipPath id="imageClip">
+      <rect x="31" y="${imageY}" width="334" height="222" rx="15" ry="15"/>
+    </clipPath>
+  </defs>
+  <rect width="400" height="470" fill="#f4f5f3"/>
+  <rect x="0.5" y="6.5" width="399" height="466" rx="26" fill="#ffffff" stroke="#cfd6e0" filter="url(#cardShadow)"/>
+  <circle cx="200" cy="6" r="6" fill="#ffffff" stroke="#cfd6e0" stroke-width="3"/>
+  <text x="31" y="44" fill="#6f7784" font-size="14" font-weight="800" letter-spacing="4" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">节点 ${node.publicNodeNumber}</text>
+  <circle cx="360" cy="40" r="6" fill="#b7bec8"/>
+  <line x1="7" y1="70" x2="392" y2="70" stroke="#dde2e8"/>
+  <text fill="#0f1720" font-size="28" font-weight="900" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    ${renderExportTspans({ lines: titleLines, x: 31, y: 118, lineHeight: 32 })}
+  </text>
+  <text fill="#6b7280" font-size="18" font-weight="500" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    ${renderExportTspans({ lines: summaryLines, x: 31, y: summaryY, lineHeight: 28 })}
+  </text>
+  <rect x="31" y="${imageY}" width="334" height="222" rx="15" fill="#f4f6f8" stroke="#d7dde5"/>
+  <image href="${escapeHtml(imageHref)}" x="31" y="${imageY}" width="334" height="222" preserveAspectRatio="xMidYMid slice" clip-path="url(#imageClip)"/>
+</svg>`;
+}
+
+async function renderNodeExportImage(node: TreeNode): Promise<Blob> {
+  if (!node.imageUrl) {
+    throw new Error("节点没有可导出的图片");
+  }
+
+  const imageHref = await resolveExportImageHref(node.imageUrl);
+  const svg = createNodeExportSvg(node, imageHref);
+
+  return new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
 }
 
 function ToolbarGlyph({ icon }: { icon: string }) {
@@ -456,48 +590,24 @@ export function CanvasWorkspace() {
     try {
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
-      const failures: string[] = [];
 
       await Promise.all(
         exportableNodes.map(async (node) => {
-          try {
-            const response = await fetch(node.imageUrl as string);
+          const blob = await renderNodeExportImage(node);
 
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-
-            const blob = await response.blob();
-            const extensionMatch = new URL(node.imageUrl as string).pathname.match(/\.(png|jpg|jpeg|webp)$/i);
-            const extension =
-              extensionMatch?.[1]?.toLowerCase() === "jpeg"
-                ? "jpg"
-                : (extensionMatch?.[1]?.toLowerCase() ?? "png");
-
-            zip.file(
-              `node-${node.publicNodeNumber}-${node.displayName.replace(/[\\/:*?"<>|]/g, "-")}.${extension}`,
-              blob
-            );
-          } catch (error) {
-            failures.push(
-              `节点 ${node.publicNodeNumber} ${node.displayName}: ${
-                error instanceof Error ? error.message : "下载失败"
-              }`
-            );
-          }
+          zip.file(
+            `node-card-${node.publicNodeNumber}-${sanitizeFileSegment(node.displayName)}.svg`,
+            blob
+          );
         })
       );
-
-      if (failures.length > 0) {
-        zip.file("export-errors.txt", failures.join("\n"));
-      }
 
       const zipBlob = await zip.generateAsync({ type: "blob" });
       const downloadUrl = URL.createObjectURL(zipBlob);
       const link = document.createElement("a");
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       link.href = downloadUrl;
-      link.download = `voice-painting-images-${timestamp}.zip`;
+      link.download = `voice-painting-node-cards-${timestamp}.zip`;
       link.click();
       URL.revokeObjectURL(downloadUrl);
     } finally {
