@@ -422,7 +422,7 @@ test("vercel deployment serves the Fastify API through a Next route handler", ()
   assert.match(nextApiRouteSource, /buildApp/);
   assert.match(nextApiRouteSource, /app\.inject/);
   assert.match(nextApiRouteSource, /\/api\$\{backendPath/);
-  assert.doesNotMatch(nextApiRouteSource, /persistenceMode:\s*process\.env\.PERSISTENCE_MODE/);
+  assert.match(nextApiRouteSource, /process\.env\.DATABASE_URL\s*\?\s*"postgres"\s*:\s*"memory"/);
 });
 
 test("workbench store is live-api only and does not fall back to demo fixtures", () => {
