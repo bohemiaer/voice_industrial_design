@@ -1,20 +1,42 @@
 import Image from 'next/image';
-import { MousePointer2, Hand, Minus, Plus, Undo2, Redo2, Upload, ArrowUp, Pencil } from 'lucide-react';
-import overviewReference from '../../../../../docs/langding/overview.png';
+import { MousePointer2, Hand, Minus, Plus, Undo2, Redo2, Upload, ArrowUp, Sparkles, Download, FolderDown } from 'lucide-react';
+import exportReference from '../../../../../docs/langding/export.png';
 import firstGenReference from '../../../../../docs/langding/first-gen.png';
 import nodeReference from '../../../../../docs/langding/node.png';
-import exportReference from '../../../../../docs/langding/export.png';
 
 export const OverviewIllustration = () => {
   return (
-    <div className="relative h-full w-full overflow-hidden bg-transparent">
-      <Image
-        src={overviewReference}
-        alt="概念树工作台总览"
-        fill
-        className="object-contain"
-        priority
-      />
+    <div className="relative h-full w-full overflow-hidden bg-[#F8FAFC] font-sans">
+      <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#E2E8F0 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }} />
+      <div className="relative z-10 flex items-center justify-center h-full p-8">
+        <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-200 w-full max-w-[900px] h-[400px] flex flex-col">
+          <div className="border-b border-slate-100 px-5 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-red-400" />
+                <div className="w-3 h-3 rounded-full bg-amber-400" />
+                <div className="w-3 h-3 rounded-full bg-emerald-400" />
+              </div>
+              <span className="text-[11px] text-slate-400 font-medium">概念树工作台</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="px-3 py-1 bg-slate-900 text-white text-[10px] rounded-full font-medium flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" />
+                新建会话
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 relative flex items-center justify-center">
+            <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#E2E8F0 0.8px, transparent 0.8px)', backgroundSize: '20px 20px' }} />
+            <div className="relative z-10">
+              <div className="w-36 h-36 rounded-full bg-slate-900 flex items-center justify-center shadow-lg">
+                <Sparkles className="w-10 h-10 text-white" />
+              </div>
+              <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-emerald-400 border-2 border-white" />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
