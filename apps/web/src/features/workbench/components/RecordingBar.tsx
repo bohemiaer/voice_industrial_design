@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { RecordingState } from "../types";
+import type { InputDraftSource, RecordingState } from "../types";
 
 type RecordingBarProps = {
   prompts: string[];
+  inputPlaceholder: string;
+  draftText: string;
+  draftSource: InputDraftSource | null;
+  draftRevision: number;
   recordingState: RecordingState;
   liveTranscriptText: string | null;
   isBusy: boolean;
-  onPromptClick: (prompt: string) => void;
   onTextSubmit: (text: string) => Promise<void>;
   onRecordingStateChange: (recordingState: RecordingState) => void;
   onRecordingComplete: (audio: Blob) => void;
@@ -24,19 +27,9 @@ type RecordingSession = {
   stream: MediaStream;
 };
 
-const recordingCopy: Record<RecordingState, { title: string; hint: string }> = {
-  idle: {
-    title: "按住空格键语音输入，或补充需求",
-    hint: "例如：“沿着节点 3 继续发散”“保留数量但整体更轻薄一点”"
-  },
-  listening: {
-    title: "按住空格正在录音",
-    hint: "松开空格后会立刻上传录音并转成文字。"
-  },
-  processing: {
-    title: "正在转文字",
-    hint: "识别完成后会先显示文字，再继续生成设计节点。"
-  }
+type DraftChip = {
+  text: string;
+  source: InputDraftSource;
 };
 
 function mergeAudioChunks(chunks: Float32Array[]): Float32Array {
@@ -88,22 +81,63 @@ function writeAscii(view: DataView, offset: number, text: string): void {
   }
 }
 
+function DockIcon({ name }: { name: "plus" | "record" | "send" }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const
+  };
+
+  if (name === "plus") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 6v12" />
+        <path d="M6 12h12" />
+      </svg>
+    );
+  }
+
+  if (name === "send") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 19V5" />
+        <path d="m6.5 10.5 5.5-5.5 5.5 5.5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...commonProps}>
+      <circle cx="12" cy="12" r="5.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function RecordingBar({
   prompts,
+  inputPlaceholder,
+  draftText,
+  draftSource,
+  draftRevision,
   recordingState,
   liveTranscriptText,
   isBusy,
-  onPromptClick,
   onTextSubmit,
   onRecordingStateChange,
   onRecordingComplete
 }: RecordingBarProps) {
-  const copy = recordingCopy[recordingState];
-  const inputPlaceholder = "例如：输入“确认”继续，或直接描述新的节点方向调整";
+  const recordingStatusTitle =
+    recordingState === "listening"
+      ? "按住空格正在录音"
+      : null;
   const recordingSessionRef = useRef<RecordingSession | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const isSpaceRecordingRef = useRef(false);
   const [textInput, setTextInput] = useState("");
+  const [draftChip, setDraftChip] = useState<DraftChip | null>(null);
   const isRecording = recordingState === "listening";
 
   const finalizeRecording = useCallback(async (session: RecordingSession) => {
@@ -220,16 +254,44 @@ export function RecordingBar({
     await startRecording();
   };
 
-  const handleTextSubmit = async () => {
-    const trimmed = textInput.trim();
+  const handlePromptSelect = (prompt: string) => {
+    setTextInput(prompt);
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.focus();
+      textAreaRef.current?.setSelectionRange(prompt.length, prompt.length);
+    });
+  };
 
-    if (!trimmed) {
+  const handleTextSubmit = async () => {
+    const submitText = [draftChip?.text, textInput]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    if (!submitText) {
       return;
     }
 
+    setDraftChip(null);
     setTextInput("");
-    await onTextSubmit(trimmed);
+    await onTextSubmit(submitText);
   };
+
+  useEffect(() => {
+    if (!draftText || !draftSource) {
+      return;
+    }
+
+    setDraftChip({
+      text: draftText,
+      source: draftSource
+    });
+    setTextInput("");
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.focus();
+      textAreaRef.current?.setSelectionRange(0, 0);
+    });
+  }, [draftRevision, draftSource, draftText]);
 
   useEffect(() => {
     const textArea = textAreaRef.current;
@@ -312,7 +374,7 @@ export function RecordingBar({
             type="button"
             className="prompt-chip"
             disabled={isBusy}
-            onClick={() => onPromptClick(prompt)}
+            onClick={() => handlePromptSelect(prompt)}
           >
             {prompt}
           </button>
@@ -321,7 +383,28 @@ export function RecordingBar({
 
       <div className={["input-panel", isRecording ? "input-panel--recording" : ""].join(" ")}>
         <div className="input-panel__field">
-          <p>{copy.title}</p>
+          {recordingStatusTitle ? <p>{recordingStatusTitle}</p> : null}
+          {draftChip ? (
+            <div
+              className="input-draft-chip"
+              data-source-node-id={draftChip.source.nodeId}
+              data-source-public-node-number={draftChip.source.publicNodeNumber}
+              data-source-display-name={draftChip.source.displayName}
+            >
+              <span className="input-draft-chip__source">
+                节点 {draftChip.source.publicNodeNumber}
+              </span>
+              <span className="input-draft-chip__text">{draftChip.text}</span>
+              <button
+                type="button"
+                className="input-draft-chip__remove"
+                aria-label="删除输入气泡"
+                onClick={() => setDraftChip(null)}
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
           <textarea
             ref={textAreaRef}
             className="input-panel__text-input"
@@ -331,6 +414,12 @@ export function RecordingBar({
             disabled={isBusy}
             onChange={(event) => setTextInput(event.target.value)}
             onKeyDown={(event) => {
+              if (event.key === "Backspace" && textInput.length === 0 && draftChip) {
+                event.preventDefault();
+                setDraftChip(null);
+                return;
+              }
+
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 if (!isBusy) {
@@ -343,7 +432,7 @@ export function RecordingBar({
 
         <div className="input-panel__controls">
           <button className="ghost-button" type="button" aria-label="上传附件" disabled={isBusy}>
-            +
+            <DockIcon name="plus" />
           </button>
 
           <div className="input-panel__actions">
@@ -360,19 +449,19 @@ export function RecordingBar({
                 void handleMicClick();
               }}
             >
-              <span className="mic-dot" />
+              <DockIcon name="record" />
               <span className="mic-wave" />
             </button>
             <button
               className="submit-button"
               type="button"
               aria-label="发送"
-              disabled={isBusy || textInput.trim().length === 0}
+              disabled={isBusy || (textInput.trim().length === 0 && !draftChip)}
               onClick={() => {
                 void handleTextSubmit();
               }}
             >
-              ↑
+              <DockIcon name="send" />
             </button>
           </div>
         </div>

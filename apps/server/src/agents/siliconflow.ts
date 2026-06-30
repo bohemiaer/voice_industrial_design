@@ -1,22 +1,38 @@
 import {
   BrainstormAssistantOutputSchema,
+  ChatAssistantOutputSchema,
+  MemorySummarizerOutputSchema,
   SketchGenerationOutputSchema,
   type BrainstormAssistantInput,
   type BrainstormAssistantOutput,
+  type ChatAssistantInput,
+  type ChatAssistantOutput,
+  type MemorySummarizerInput,
+  type MemorySummarizerOutput,
   type SketchGenerationInput,
   type SketchGenerationOutput
 } from "@voice-industrial-design/shared";
 
 import type { AppConfig } from "../config.js";
+import { recordAgentObservation } from "../observability/agent-observation.js";
 import {
   AgentGatewayError,
   type AgentGateway,
+  type BrainstormAgentInput,
+  type ChatAssistantRequest,
+  type MemorySummarizerRequest,
+  type RuntimeApiKeys,
+  type SketchGenerationRequest,
   type TranscribeAudioInput,
   type TranscribeAudioOutput
 } from "./types.js";
+import {
+  buildSketchPromptSet
+} from "./sketch-prompt-builder.js";
 
 const REQUEST_TIMEOUT_MS = 120_000;
 const MAX_ATTEMPTS = 2;
+const SKETCH_IMAGE_SIZE = "768x512";
 
 type FetchLike = typeof fetch;
 
@@ -82,7 +98,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       "/audio/transcriptions",
       {
         method: "POST",
-        headers: this.authHeaders(),
+        headers: this.authHeaders(input.runtimeApiKeys),
         body: formData
       }
     );
@@ -100,7 +116,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   }
 
   async runBrainstormAssistant(
-    input: BrainstormAssistantInput
+    input: BrainstormAgentInput
   ): Promise<BrainstormAssistantOutput> {
     const canUseDeepSeekDirectly =
       this.config.deepSeekApiKey &&
@@ -144,7 +160,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   }
 
   private async runSiliconFlowBrainstormAssistant(
-    input: BrainstormAssistantInput
+    input: BrainstormAgentInput
   ): Promise<BrainstormAssistantOutput> {
     const model = this.requireConfig(
       this.config.siliconFlowBrainstormModel,
@@ -155,7 +171,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       "/chat/completions",
       {
         method: "POST",
-        headers: this.jsonHeaders(),
+        headers: this.jsonHeaders(input.runtimeApiKeys),
         body: JSON.stringify({
           model,
           messages: buildBrainstormMessages(input),
@@ -205,27 +221,197 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     }
   }
 
+  async runChatAssistant(
+    input: ChatAssistantRequest
+  ): Promise<ChatAssistantOutput> {
+    const hasRuntimeApiKey = Boolean(
+      input.runtimeApiKeys?.siliconFlowApiKey?.trim()
+    );
+
+    const canUseSiliconFlow =
+      hasRuntimeApiKey ||
+      Boolean(this.config.siliconFlowApiKey?.trim());
+
+    if (canUseSiliconFlow) {
+      return this.runSiliconFlowChatAssistant(input);
+    }
+
+    const response = await this.requestDeepSeekChatCompletion(
+      buildChatAssistantMessages(input)
+    );
+    const dcontent = response.choices?.[0]?.message?.content;
+
+    if (!dcontent) {
+      throw new AgentGatewayError(
+        "DeepSeek chat response did not include message content.",
+        "DEEPSEEK_CHAT_RESPONSE_INVALID"
+      );
+    }
+
+    try {
+      return ChatAssistantOutputSchema.parse(parseAssistantJson(dcontent));
+    } catch (error) {
+      throw new AgentGatewayError(
+        "DeepSeek chat response did not match the Chat Assistant schema.",
+        "DEEPSEEK_CHAT_RESPONSE_INVALID",
+        error
+      );
+    }
+  }
+
+  private async runSiliconFlowChatAssistant(
+    input: ChatAssistantRequest
+  ): Promise<ChatAssistantOutput> {
+    const model = this.requireConfig(
+      this.config.siliconFlowChatModel,
+      "SILICONFLOW_CHAT_MODEL"
+    );
+
+    const response = await this.requestJson<ChatCompletionResponse>(
+      "/chat/completions",
+      {
+        method: "POST",
+        headers: this.jsonHeaders(input.runtimeApiKeys),
+        body: JSON.stringify({
+          model,
+          messages: buildChatAssistantMessages(input),
+          response_format: {
+            type: "json_object"
+          }
+        })
+      }
+    );
+
+    const content = response.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new AgentGatewayError(
+        "SiliconFlow chat response did not include message content.",
+        "SILICONFLOW_RESPONSE_INVALID"
+      );
+    }
+
+    try {
+      return ChatAssistantOutputSchema.parse(parseAssistantJson(content));
+    } catch (error) {
+      throw new AgentGatewayError(
+        "SiliconFlow chat response did not match the Chat Assistant schema.",
+        "SILICONFLOW_RESPONSE_INVALID",
+        error
+      );
+    }
+  }
+
+  async runMemorySummarizer(
+    input: MemorySummarizerRequest
+  ): Promise<MemorySummarizerOutput> {
+    const hasRuntimeApiKey = Boolean(
+      input.runtimeApiKeys?.siliconFlowApiKey?.trim()
+    );
+
+    const canUseSiliconFlow =
+      hasRuntimeApiKey ||
+      Boolean(this.config.siliconFlowApiKey?.trim());
+
+    if (canUseSiliconFlow) {
+      return this.runSiliconFlowMemorySummarizer(input);
+    }
+
+    const response = await this.requestDeepSeekChatCompletion(
+      buildMemorySummarizerMessages(input)
+    );
+    const dcontent = response.choices?.[0]?.message?.content;
+
+    if (!dcontent) {
+      throw new AgentGatewayError(
+        "DeepSeek memory response did not include message content.",
+        "DEEPSEEK_MEMORY_RESPONSE_INVALID"
+      );
+    }
+
+    try {
+      return MemorySummarizerOutputSchema.parse(parseAssistantJson(dcontent));
+    } catch (error) {
+      throw new AgentGatewayError(
+        "DeepSeek memory response did not match the Memory Summarizer schema.",
+        "DEEPSEEK_MEMORY_RESPONSE_INVALID",
+        error
+      );
+    }
+  }
+
+  private async runSiliconFlowMemorySummarizer(
+    input: MemorySummarizerRequest
+  ): Promise<MemorySummarizerOutput> {
+    const model = this.requireConfig(
+      this.config.siliconFlowChatModel,
+      "SILICONFLOW_CHAT_MODEL"
+    );
+
+    const response = await this.requestJson<ChatCompletionResponse>(
+      "/chat/completions",
+      {
+        method: "POST",
+        headers: this.jsonHeaders(input.runtimeApiKeys),
+        body: JSON.stringify({
+          model,
+          messages: buildMemorySummarizerMessages(input),
+          response_format: {
+            type: "json_object"
+          }
+        })
+      }
+    );
+
+    const content = response.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new AgentGatewayError(
+        "SiliconFlow memory response did not include message content.",
+        "SILICONFLOW_RESPONSE_INVALID"
+      );
+    }
+
+    try {
+      return MemorySummarizerOutputSchema.parse(parseAssistantJson(content));
+    } catch (error) {
+      throw new AgentGatewayError(
+        "SiliconFlow memory response did not match the Memory Summarizer schema.",
+        "SILICONFLOW_RESPONSE_INVALID",
+        error
+      );
+    }
+  }
+
   async generateSketch(
-    input: SketchGenerationInput
+    input: SketchGenerationRequest
   ): Promise<SketchGenerationOutput> {
     const model = this.requireConfig(
       this.config.siliconFlowImageModel,
       "SILICONFLOW_IMAGE_MODEL"
     );
-    const prompt = buildSketchPrompt(input);
-    const negativePrompt = "photorealistic, final render, advertisement, text";
+    const promptSet = buildSketchPromptSet(input);
+    const imageRequest = {
+      model,
+      prompt: promptSet.prompt,
+      negative_prompt: promptSet.negativePrompt,
+      image_size: SKETCH_IMAGE_SIZE,
+      batch_size: 1
+    };
+    recordAgentObservation("image_assistant.input", {
+      model,
+      briefId: input.brief.briefId,
+      sketchInput: input,
+      promptSet,
+      imageRequest
+    });
 
     const response = await this.requestJson<ImageGenerationResponse>(
       "/images/generations",
       {
         method: "POST",
-        headers: this.jsonHeaders(),
-        body: JSON.stringify({
-          model,
-          prompt,
-          negative_prompt: negativePrompt,
-          batch_size: 1
-        })
+        headers: this.jsonHeaders(input.runtimeApiKeys),
+        body: JSON.stringify(imageRequest)
       }
     );
 
@@ -238,14 +424,21 @@ export class SiliconFlowAgentGateway implements AgentGateway {
       );
     }
 
-    return SketchGenerationOutputSchema.parse({
+    const sketchOutput = SketchGenerationOutputSchema.parse({
       imageId: `siliconflow-${response.seed ?? input.brief.briefId}`,
       briefId: input.brief.briefId,
       imageUrl,
-      promptUsed: prompt,
-      negativePromptUsed: negativePrompt,
-      visualSummary: `${input.brief.displayName} 的早期工业设计草图。`
+      promptUsed: promptSet.prompt,
+      negativePromptUsed: promptSet.negativePrompt,
+      visualSummary: promptSet.visualSummary
     });
+    recordAgentObservation("image_assistant.output", {
+      model,
+      briefId: input.brief.briefId,
+      sketchOutput
+    });
+
+    return sketchOutput;
   }
 
   private async requestJson<T>(
@@ -360,6 +553,33 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     }
   }
 
+  private async requestDeepSeekChatCompletion(
+    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+  ): Promise<ChatCompletionResponse> {
+    const model = this.requireConfig(
+      this.config.deepSeekBrainstormModel,
+      "DEEPSEEK_BRAINSTORM_MODEL"
+    );
+
+    return this.requestDeepSeekJson<ChatCompletionResponse>(
+      "/chat/completions",
+      {
+        method: "POST",
+        headers: this.deepSeekJsonHeaders(),
+        body: JSON.stringify({
+          model,
+          messages,
+          response_format: {
+            type: "json_object"
+          },
+          thinking: {
+            type: "disabled"
+          }
+        })
+      }
+    );
+  }
+
   private endpoint(path: string): string {
     const baseUrl = this.requireConfig(
       this.config.siliconFlowBaseUrl,
@@ -378,18 +598,20 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
   }
 
-  private authHeaders(): Record<string, string> {
+  private authHeaders(runtimeApiKeys?: RuntimeApiKeys): Record<string, string> {
+    const runtimeApiKey = runtimeApiKeys?.siliconFlowApiKey?.trim();
+
     return {
       authorization: `Bearer ${this.requireConfig(
-        this.config.siliconFlowApiKey,
+        runtimeApiKey || this.config.siliconFlowApiKey,
         "SILICONFLOW_API_KEY"
       )}`
     };
   }
 
-  private jsonHeaders(): Record<string, string> {
+  private jsonHeaders(runtimeApiKeys?: RuntimeApiKeys): Record<string, string> {
     return {
-      ...this.authHeaders(),
+      ...this.authHeaders(runtimeApiKeys),
       "content-type": "application/json"
     };
   }
@@ -457,6 +679,50 @@ async function readErrorBody(response: Response): Promise<unknown> {
   }
 }
 
+function buildChatAssistantMessages(
+  input: ChatAssistantInput
+): Array<{ role: "system" | "user"; content: string }> {
+  return [
+    {
+      role: "system",
+      content: [
+        "你是工业设计脑暴工具的只读对话助理。",
+        "你必须回答用户问题，但不得生成方向 brief、不得调用生图、不得决定树操作。",
+        "只能输出 JSON object：{\"assistantReply\":\"string\"}。"
+      ].join("\n")
+    },
+    {
+      role: "user",
+      content: [
+        "只读对话输入：",
+        JSON.stringify(input)
+      ].join("\n")
+    }
+  ];
+}
+
+function buildMemorySummarizerMessages(
+  input: MemorySummarizerInput
+): Array<{ role: "system" | "user"; content: string }> {
+  return [
+    {
+      role: "system",
+      content: [
+        "你是工业设计脑暴会话的记忆摘要助理。",
+        "只保留会影响后续设计生成或解释的事实。",
+        "只能输出 JSON object，字段为 stablePreferences、activeConstraints、rejectedDirections、openQuestions、shortSummary。"
+      ].join("\n")
+    },
+    {
+      role: "user",
+      content: [
+        "记忆摘要输入：",
+        JSON.stringify(input)
+      ].join("\n")
+    }
+  ];
+}
+
 function buildBrainstormSystemPrompt(): string {
   return [
     "你是工业设计早期概念发散助手。",
@@ -466,10 +732,12 @@ function buildBrainstormSystemPrompt(): string {
     "初始设计目标是本轮所有子方向都必须继承的主约束；如果用户提出的新修饰与初始目标冲突，应在不偏离主目标的前提下吸收调整。",
     "assistantReply 必须先复述用户需求，再说明现在会采取的具体动作。",
     "designIntentSummary 只描述本轮生成意图，不要改写用户首轮 root 原始需求。",
-    "默认直接执行，不要把所有输入都标记为需要确认。",
+    "默认直接执行，不要输出确认或审批字段。",
     "targetNodeId 必须等于输入里的 selectedNodeId，除非输入明确要求操作另一个节点。",
     "若用户没有明确说数量，则 branchCount 默认输出 3。",
     "branchCount 必须在 constraints.minBranchCount 和 constraints.maxBranchCount 之间，directionBriefs.length 必须等于 branchCount。",
+    "每个 directionBrief 必须输出 suggestedFollowups，且必须严格为 3 条短建议。",
+    "suggestedFollowups 是节点下方的推荐发散方向，必须围绕该节点自身语义，不要写泛化教程。",
     "必须严格输出下面这些 camelCase 字段：",
     JSON.stringify({
       actionType: "diverge | refresh",
@@ -477,8 +745,6 @@ function buildBrainstormSystemPrompt(): string {
       branchCount: 3,
       designIntentSummary: "string",
       assistantReply: "string",
-      confirmationRequired: false,
-      rewrittenIntentForConfirmation: null,
       promptHints: ["string"],
       directionBriefs: [
         {
@@ -490,6 +756,7 @@ function buildBrainstormSystemPrompt(): string {
           formLanguage: ["string"],
           userNeedResponse: ["string"],
           inspirationHints: ["string"],
+          suggestedFollowups: ["string", "string", "string"],
           variationAxis: "string",
           promptIntent: "string"
         }
@@ -543,8 +810,6 @@ function buildBrainstormMessages(
         branchCount: 3,
         designIntentSummary: "围绕桌面风扇的首轮需求生成三个可比较方向。",
         assistantReply: "我理解你要先围绕当前总需求做首轮发散，现在会直接生成三个方向。",
-        confirmationRequired: false,
-        rewrittenIntentForConfirmation: null,
         promptHints: ["白底线稿", "早期工业设计草图"],
         directionBriefs: [
           {
@@ -556,6 +821,7 @@ function buildBrainstormMessages(
             formLanguage: ["轻薄", "悬浮"],
             userNeedResponse: ["减轻桌面存在感"],
             inspirationHints: ["办公设备", "消费电子"],
+            suggestedFollowups: ["强化悬浮底座比例", "让机身再薄一点", "探索更低压迫的桌面姿态"],
             variationAxis: "体量感",
             promptIntent: "白底工业设计草图，表现轻薄悬浮的桌面风扇方向。"
           },
@@ -568,6 +834,7 @@ function buildBrainstormMessages(
             formLanguage: ["圆润", "包裹"],
             userNeedResponse: ["更适合办公环境"],
             inspirationHints: ["家居产品"],
+            suggestedFollowups: ["换成更温和的家居 CMF", "强化连续曲面包裹", "让边缘更亲和柔软"],
             variationAxis: "边界处理",
             promptIntent: "白底工业设计草图，表现柔和包裹的桌面风扇方向。"
           },
@@ -580,6 +847,7 @@ function buildBrainstormMessages(
             formLanguage: ["模块化", "秩序"],
             userNeedResponse: ["提升专业感"],
             inspirationHints: ["办公电器"],
+            suggestedFollowups: ["细化模块分区比例", "强化专业设备秩序", "探索更清晰的功能边界"],
             variationAxis: "结构表达",
             promptIntent: "白底工业设计草图，表现模块秩序的桌面风扇方向。"
           }
@@ -629,8 +897,6 @@ function buildBrainstormMessages(
         branchCount: 3,
         designIntentSummary: "围绕柔和包裹感刷新出三个更柔和的新版本。",
         assistantReply: "我理解你要把第二个方向下最近一组结果整体刷新，现在会直接生成三个更柔和的新版本。",
-        confirmationRequired: false,
-        rewrittenIntentForConfirmation: null,
         promptHints: ["白底线稿", "对比子方向"],
         directionBriefs: [
           {
@@ -642,6 +908,7 @@ function buildBrainstormMessages(
             formLanguage: ["圆角", "一体"],
             userNeedResponse: ["更亲和"],
             inspirationHints: ["家电"],
+            suggestedFollowups: ["进一步圆润外轮廓", "换成更柔和 CMF", "弱化工具感"],
             variationAxis: "外轮廓",
             promptIntent: "白底工业设计草图，表现更圆角的一体式子方向。"
           },
@@ -654,6 +921,7 @@ function buildBrainstormMessages(
             formLanguage: ["软包", "温和"],
             userNeedResponse: ["减轻冷硬感"],
             inspirationHints: ["家居音箱"],
+            suggestedFollowups: ["强化织物包覆感", "探索低对比接缝", "让触感更温和"],
             variationAxis: "材质联想",
             promptIntent: "白底工业设计草图，表现具有织物包裹感的子方向。"
           },
@@ -666,6 +934,7 @@ function buildBrainstormMessages(
             formLanguage: ["内收", "曲面"],
             userNeedResponse: ["更轻盈"],
             inspirationHints: ["桌面设备"],
+            suggestedFollowups: ["继续内收侧面轮廓", "压低底座视觉高度", "强化轻盈曲面过渡"],
             variationAxis: "体量收束",
             promptIntent: "白底工业设计草图，表现内收曲面的柔和子方向。"
           }
@@ -709,20 +978,6 @@ function buildCurrentTurnPrompt(input: BrainstormAssistantInput): string {
     "- 输出的新节点必须继承初始设计目标，并延续父节点上下文后再做本轮变化。",
     "结构化输入 JSON：",
     JSON.stringify(input)
-  ].join("\n");
-}
-
-function buildSketchPrompt(input: SketchGenerationInput): string {
-  return [
-    input.brief.promptIntent,
-    `方向名称：${input.brief.displayName}`,
-    `设计意图：${input.brief.intentSummary}`,
-    `形态语言：${input.brief.formLanguage.join("，")}`,
-    `用户需求：${input.brief.userNeedResponse.join("，")}`,
-    `灵感提示：${input.brief.inspirationHints.join("，")}`,
-    `差异轴：${input.brief.variationAxis}`,
-    `阶段：${input.sessionStyle.detailLevel} ${input.depthContext.branchStage}`,
-    "早期工业设计草图，白底，线稿，少量灰度阴影，强调可比较的产品形态。"
   ].join("\n");
 }
 
@@ -778,8 +1033,6 @@ function normalizeBrainstormAssistantOutput(
     targetNodeId?: unknown;
     branchCount?: unknown;
     directionBriefs?: unknown;
-    confirmationRequired?: unknown;
-    rewrittenIntentForConfirmation?: unknown;
     assistantReply?: unknown;
     designIntentSummary?: unknown;
     promptHints?: unknown;
@@ -793,27 +1046,11 @@ function normalizeBrainstormAssistantOutput(
     normalized.targetNodeId = input.selectedNodeId;
   }
 
-  if (typeof normalized.confirmationRequired !== "boolean") {
-    normalized.confirmationRequired = false;
-  }
-
-  if (normalized.rewrittenIntentForConfirmation === null) {
-    delete normalized.rewrittenIntentForConfirmation;
-  }
-
   if (
     typeof normalized.assistantReply !== "string" &&
     typeof normalized.designIntentSummary === "string"
   ) {
     normalized.assistantReply = normalized.designIntentSummary;
-  }
-
-  if (
-    normalized.confirmationRequired === true &&
-    typeof normalized.rewrittenIntentForConfirmation !== "string" &&
-    typeof normalized.assistantReply === "string"
-  ) {
-    normalized.rewrittenIntentForConfirmation = normalized.assistantReply;
   }
 
   if (!Array.isArray(normalized.promptHints)) {
@@ -894,6 +1131,10 @@ function normalizeDirectionBrief(
     formLanguage: normalizeStringArray(brief.formLanguage, ["产品比例"]),
     userNeedResponse: normalizeStringArray(brief.userNeedResponse, ["满足核心使用需求"]),
     inspirationHints: normalizeStringArray(brief.inspirationHints, ["工业设计参考"]),
+    suggestedFollowups: normalizeSuggestedFollowups(
+      brief.suggestedFollowups,
+      displayName
+    ),
     variationAxis: firstString(
       brief.variationAxis,
       brief.axis,
@@ -907,6 +1148,17 @@ function normalizeDirectionBrief(
       displayName
     )
   };
+}
+
+function normalizeSuggestedFollowups(value: unknown, displayName: string): string[] {
+  const normalized = normalizeStringArray(value, []);
+  const fallbacks = [
+    `沿${displayName}继续细化`,
+    "强化该方向的形态差异",
+    "换一个更明确的材质策略"
+  ];
+
+  return [...normalized, ...fallbacks].slice(0, 3);
 }
 
 function firstString(...values: unknown[]): string {

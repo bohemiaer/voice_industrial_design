@@ -1,49 +1,16 @@
-"use client";
+import LandingPage from "./_components/LandingPage";
 
-import { useEffect } from "react";
-import { ReactFlowProvider } from "@xyflow/react";
-
-import { CanvasWorkspace } from "../features/workbench/components/CanvasWorkspace";
-import { ConversationPanel } from "../features/workbench/components/ConversationPanel";
-import { TopBar } from "../features/workbench/components/TopBar";
-import { useWorkbenchStore } from "../features/workbench/store";
-
-function WorkbenchPageShell() {
-  const session = useWorkbenchStore((state) => state.serverState.session);
-  const apiStatus = useWorkbenchStore((state) => state.uiState.apiStatus);
-  const apiError = useWorkbenchStore((state) => state.uiState.apiError);
-  const initializeApiSession = useWorkbenchStore((state) => state.initializeApiSession);
-  const startNewApiSession = useWorkbenchStore((state) => state.startNewApiSession);
-
-  useEffect(() => {
-    void initializeApiSession();
-  }, [initializeApiSession]);
-
-  return (
-    <main className="workbench-page">
-      <section className="workbench-shell" data-testid="workbench-shell">
-        <TopBar
-          title={session.title}
-          apiStatus={apiStatus}
-          apiError={apiError}
-          onStartNewSession={() => {
-            void startNewApiSession();
-          }}
-        />
-
-        <div className="workbench-body">
-          <CanvasWorkspace />
-          <ConversationPanel />
-        </div>
-      </section>
-    </main>
-  );
-}
+export const metadata = {
+  title: "工业设计概念探索工作台 | 概念树工作台",
+  description:
+    "概念树工作台帮助工业设计师把模糊需求展开成多条可比较、可回看的概念方向。",
+  keywords: ["工业设计", "概念探索", "概念树", "设计发散", "AI 设计工作台"],
+  openGraph: {
+    title: "工业设计概念探索工作台",
+    description: "把模糊需求展开成多条可比较、可回看的概念方向。",
+  },
+};
 
 export default function HomePage() {
-  return (
-    <ReactFlowProvider>
-      <WorkbenchPageShell />
-    </ReactFlowProvider>
-  );
+  return <LandingPage />;
 }

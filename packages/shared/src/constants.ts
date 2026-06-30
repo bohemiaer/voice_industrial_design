@@ -27,11 +27,15 @@ export const TREE_NODE_STATUS = [
 export const MESSAGE_ROLE = ["user", "assistant", "system"] as const;
 
 export const MESSAGE_KIND = [
+  "intent",
   "transcript",
   "status",
   "summary",
   "confirmation",
-  "hint"
+  "hint",
+  "chat",
+  "node_explanation",
+  "memory_summary"
 ] as const;
 
 export const CONFIRMATION_STATUS = [

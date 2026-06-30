@@ -3,6 +3,13 @@ import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 
 import { AgentGatewayError, type AgentGateway } from "./agents/types.js";
+import {
+  authenticateRequest,
+  createSupabaseJwtVerifier,
+  isProtectedApiRequest,
+  type AuthenticatedUser,
+  type AuthVerifier
+} from "./auth.js";
 import { loadConfig, type AgentProvider, type PersistenceMode } from "./config.js";
 import { createAgentGateway } from "./agents/index.js";
 import { createDatabase } from "./db/client.js";
@@ -11,6 +18,7 @@ import { createOrchestrator } from "./orchestrator/service.js";
 import { createDrizzleServices } from "./repositories/drizzle.js";
 import { createMemoryServices } from "./repositories/memory.js";
 import type { AppServices } from "./repositories/types.js";
+import { registerDiagnosticsRoutes } from "./routes/diagnostics.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
@@ -19,7 +27,15 @@ export interface BuildAppOptions {
   persistenceMode?: PersistenceMode;
   agentProvider?: AgentProvider;
   agentGateway?: AgentGateway;
+  authRequired?: boolean;
+  authVerifier?: AuthVerifier;
+  defaultAuthenticatedUser?: AuthenticatedUser;
 }
+
+const LOCAL_AUTH_USER: AuthenticatedUser = {
+  userId: "local-workbench-user",
+  email: null
+};
 
 export async function buildApp(
   options: BuildAppOptions = {}
@@ -31,6 +47,11 @@ export async function buildApp(
     agentProvider: options.agentProvider ?? loadedConfig.agentProvider
   };
   const persistenceMode = config.persistenceMode;
+  const authRequired = options.authRequired ?? false;
+  const authVerifier = options.authVerifier ?? createSupabaseJwtVerifier(config);
+  const defaultAuthenticatedUser = authRequired
+    ? options.defaultAuthenticatedUser
+    : options.defaultAuthenticatedUser ?? LOCAL_AUTH_USER;
   const app = Fastify({
     logger: true
   });
@@ -49,11 +70,24 @@ export async function buildApp(
     );
     reply.header(
       "Access-Control-Allow-Headers",
-      "Content-Type,Authorization"
+      "Content-Type,Authorization,x-siliconflow-api-key"
     );
 
     if (request.method === "OPTIONS") {
       return reply.status(204).send();
+    }
+
+    if (isProtectedApiRequest(request)) {
+      if (!authRequired) {
+        request.currentUser = defaultAuthenticatedUser;
+        return;
+      }
+
+      await authenticateRequest({
+        request,
+        verifier: authVerifier,
+        defaultAuthenticatedUser
+      });
     }
   });
 
@@ -66,10 +100,12 @@ export async function buildApp(
 
   let services: AppServices;
   let poolCloser: (() => Promise<void>) | null = null;
+  let diagnosticsPool: Parameters<typeof registerDiagnosticsRoutes>[3] = null;
 
   if (persistenceMode === "postgres") {
     const { db, pool } = createDatabase(config);
     services = createDrizzleServices(db);
+    diagnosticsPool = pool;
     poolCloser = async () => {
       await pool.end();
     };
@@ -123,6 +159,7 @@ export async function buildApp(
   });
 
   await registerHealthRoutes(app, services);
+  await registerDiagnosticsRoutes(app, config, services, diagnosticsPool);
   await registerSessionRoutes(app, services, orchestrator);
   await registerTaskRoutes(app, services, orchestrator);
 

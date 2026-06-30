@@ -7,7 +7,7 @@
     "dev": "corepack pnpm -r --parallel --filter @voice-industrial-design/web --filter @voice-industrial-design/server dev",
     "dev:web": "corepack pnpm --filter @voice-industrial-design/web dev",
     "dev:server": "corepack pnpm --filter @voice-industrial-design/server dev",
-    "build": "corepack pnpm build:shared && corepack pnpm -r --filter @voice-industrial-design/web --filter @voice-industrial-design/server build",
+    "build": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && corepack pnpm --filter @voice-industrial-design/web build",
     "build:shared": "corepack pnpm --filter @voice-industrial-design/shared build",
     "typecheck": "corepack pnpm -r typecheck",
     "test": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && node --test --test-concurrency=1 tests/preview/workbench-preview.test.mjs tests/workspace/monorepo-scaffold.test.mjs tests/workspace/shared-schema.test.mjs tests/server/api.test.mjs tests/server/config.test.mjs tests/server/siliconflow-gateway.test.mjs",
@@ -16,5 +16,10 @@
     "test:server": "corepack pnpm build:shared && corepack pnpm --filter @voice-industrial-design/server build && node --test --test-concurrency=1 tests/server/api.test.mjs tests/server/config.test.mjs tests/server/siliconflow-gateway.test.mjs",
     "test:workspace": "node --test tests/workspace/monorepo-scaffold.test.mjs",
     "test:shared": "node --test tests/workspace/shared-schema.test.mjs"
+  },
+  "devDependencies": {
+    "next": "^14.2.30",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

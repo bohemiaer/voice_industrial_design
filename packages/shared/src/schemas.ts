@@ -56,6 +56,7 @@ export const TreeNodeSchema = z.object({
   formLanguage: z.array(z.string().min(1)),
   userNeedResponse: z.array(z.string().min(1)),
   inspirationHints: z.array(z.string().min(1)),
+  suggestedFollowups: z.array(z.string().min(1)).length(3),
   imageUrl: z.string().url().nullable(),
   status: TreeNodeStatusSchema,
   createdAt: IsoDateTimeSchema,
@@ -64,6 +65,7 @@ export const TreeNodeSchema = z.object({
 
 export const SessionSchema = z.object({
   id: z.string().min(1),
+  ownerUserId: z.string().min(1),
   title: z.string().min(1),
   goal: z.string().min(1),
   productDomain: ProductDomainSchema,
@@ -92,6 +94,84 @@ export const ConversationHistoryItemSchema = z.object({
   content: z.string().min(1)
 });
 
+export const IntentKindSchema = z.enum(["chat", "generation", "tree_op"]);
+export const InputSourceSchema = z.enum(["voice", "text", "canvas"]);
+export const RequestedActionSchema = z.enum([
+  "diverge",
+  "refresh",
+  "delete",
+  "undo",
+  "redo"
+]);
+export const ChatTypeSchema = z.enum([
+  "casual",
+  "help",
+  "status",
+  "explain_node",
+  "explain_canvas"
+]);
+
+export const ConversationMemorySchema = z.object({
+  stablePreferences: z.array(z.string().min(1)),
+  activeConstraints: z.array(z.string().min(1)),
+  rejectedDirections: z.array(z.string().min(1)),
+  openQuestions: z.array(z.string().min(1)),
+  shortSummary: z.string().min(1)
+});
+
+export const StandardTurnIntentSchema = z.object({
+  sessionId: z.string().min(1),
+  userIntentText: z.string().min(1),
+  intentKind: IntentKindSchema,
+  requestedAction: RequestedActionSchema.optional(),
+  chatType: ChatTypeSchema.optional(),
+  targetNodeId: z.string().min(1),
+  source: InputSourceSchema
+});
+
+export const ChatAssistantInputSchema = z.object({
+  userIntentText: z.string().min(1),
+  chatType: ChatTypeSchema,
+  sessionGoal: z.string().min(1),
+  conversationMemory: ConversationMemorySchema.optional(),
+  conversationHistory: z.array(ConversationHistoryItemSchema),
+  selectedNode: z
+    .object({
+      nodeId: z.string().min(1),
+      displayName: z.string().min(1),
+      intentSummary: z.string().min(1)
+    })
+    .optional(),
+  visibleNodeSummaries: z
+    .array(
+      z.object({
+        nodeId: z.string().min(1),
+        displayName: z.string().min(1),
+        intentSummary: z.string().min(1),
+        variationAxis: z.string().min(1).optional()
+      })
+    )
+    .optional()
+});
+
+export const ChatAssistantOutputSchema = z.object({
+  assistantReply: z.string().min(1)
+});
+
+export const MemorySummarizerInputSchema = z.object({
+  sessionGoal: z.string().min(1),
+  selectedNode: z
+    .object({
+      nodeId: z.string().min(1),
+      intentSummary: z.string().min(1)
+    })
+    .optional(),
+  recentMessages: z.array(ConversationHistoryItemSchema),
+  previousMemory: ConversationMemorySchema.optional()
+});
+
+export const MemorySummarizerOutputSchema = ConversationMemorySchema;
+
 export const VisualDirectionBriefSchema = z.object({
   briefId: z.string().min(1),
   targetParentNodeId: z.string().min(1),
@@ -102,6 +182,7 @@ export const VisualDirectionBriefSchema = z.object({
   formLanguage: z.array(z.string().min(1)).min(1),
   userNeedResponse: z.array(z.string().min(1)).min(1),
   inspirationHints: z.array(z.string().min(1)).min(1),
+  suggestedFollowups: z.array(z.string().min(1)).length(3),
   variationAxis: z.string().min(1),
   promptIntent: z.string().min(1)
 });
@@ -127,6 +208,7 @@ export const BrainstormAssistantInputSchema = z.object({
     })
   ),
   conversationHistory: z.array(ConversationHistoryItemSchema),
+  conversationMemory: ConversationMemorySchema.optional(),
   siblingSummaries: z.array(
     z.object({
       nodeId: z.string().min(1),
@@ -138,6 +220,7 @@ export const BrainstormAssistantInputSchema = z.object({
   constraints: z.object({
     minBranchCount: z.number().int().positive(),
     maxBranchCount: z.number().int().positive(),
+    defaultBranchCount: z.number().int().positive(),
     productDomain: ProductDomainSchema,
     sketchStage: SketchStageSchema,
     inputMode: InputModeSchema
@@ -151,8 +234,6 @@ export const BrainstormAssistantOutputSchema = z
     branchCount: z.number().int().positive(),
     designIntentSummary: z.string().min(1),
     assistantReply: z.string().min(1),
-    confirmationRequired: z.boolean().default(false),
-    rewrittenIntentForConfirmation: z.string().min(1).optional(),
     promptHints: z.array(z.string().min(1)),
     directionBriefs: z.array(VisualDirectionBriefSchema)
   })
@@ -162,15 +243,6 @@ export const BrainstormAssistantOutputSchema = z
         code: z.ZodIssueCode.custom,
         message: "directionBriefs length must equal branchCount",
         path: ["directionBriefs"]
-      });
-    }
-
-    if (value.confirmationRequired && !value.rewrittenIntentForConfirmation) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "rewrittenIntentForConfirmation is required when confirmationRequired is true",
-        path: ["rewrittenIntentForConfirmation"]
       });
     }
   });
@@ -224,9 +296,6 @@ export const GenerationTaskSchema = z.object({
   actionType: BrainstormActionTypeSchema,
   targetNodeId: z.string().min(1),
   status: TaskStatusSchema,
-  confirmationRequired: z.boolean().default(false),
-  confirmationStatus: ConfirmationStatusSchema.default("not_required"),
-  rewrittenIntentForConfirmation: z.string().min(1).nullable().default(null),
   branchCount: z.number().int().positive(),
   transcriptText: z.string().min(1),
   designIntentSummary: z.string().min(1),
@@ -264,6 +333,16 @@ export type Session = z.infer<typeof SessionSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type TreeNode = z.infer<typeof TreeNodeSchema>;
 export type VisualDirectionBrief = z.infer<typeof VisualDirectionBriefSchema>;
+export type StandardTurnIntent = z.infer<typeof StandardTurnIntentSchema>;
+export type ConversationMemory = z.infer<typeof ConversationMemorySchema>;
+export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
+export type ChatAssistantOutput = z.infer<typeof ChatAssistantOutputSchema>;
+export type MemorySummarizerInput = z.infer<
+  typeof MemorySummarizerInputSchema
+>;
+export type MemorySummarizerOutput = z.infer<
+  typeof MemorySummarizerOutputSchema
+>;
 export type BrainstormAssistantInput = z.infer<
   typeof BrainstormAssistantInputSchema
 >;

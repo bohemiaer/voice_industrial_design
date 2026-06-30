@@ -2,6 +2,7 @@ import { pgTable, uuid, text, integer, timestamp, boolean, jsonb } from "drizzle
 
 export const sessionsTable = pgTable("sessions", {
   id: uuid("id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
   title: text("title").notNull(),
   goal: text("goal").notNull(),
   productDomain: text("product_domain").notNull(),
@@ -43,6 +44,7 @@ export const treeNodesTable = pgTable("tree_nodes", {
   formLanguage: jsonb("form_language").$type<string[]>().notNull(),
   userNeedResponse: jsonb("user_need_response").$type<string[]>().notNull(),
   inspirationHints: jsonb("inspiration_hints").$type<string[]>().notNull(),
+  suggestedFollowups: jsonb("suggested_followups").$type<string[]>().notNull(),
   imageUrl: text("image_url"),
   status: text("status").notNull(),
   supersededAt: timestamp("superseded_at", { withTimezone: true }),

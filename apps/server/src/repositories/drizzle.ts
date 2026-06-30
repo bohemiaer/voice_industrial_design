@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import type { BranchTask, GenerationTask, Message, Session, TreeNode, TreeOperation, VisualDirectionBrief } from "@voice-industrial-design/shared";
@@ -23,10 +23,8 @@ import type {
   ServerRepositories,
   UpdateBranchTaskInput,
   UpdateGenerationTaskStatusInput,
-  UpdateSessionAfterNodesInput,
-  UpdateTaskConfirmationInput
+  UpdateSessionAfterNodesInput
 } from "./types.js";
-import { resolveTaskStateAfterConfirmation } from "./types.js";
 
 function toIso(value: Date): string {
   return value.toISOString();
@@ -35,6 +33,7 @@ function toIso(value: Date): string {
 function mapSession(row: typeof sessionsTable.$inferSelect): Session {
   return {
     id: row.id,
+    ownerUserId: row.ownerUserId,
     title: row.title,
     goal: row.goal,
     productDomain: "industrial_design",
@@ -77,6 +76,7 @@ function mapTreeNode(row: typeof treeNodesTable.$inferSelect): TreeNode {
     formLanguage: row.formLanguage,
     userNeedResponse: row.userNeedResponse,
     inspirationHints: row.inspirationHints,
+    suggestedFollowups: row.suggestedFollowups,
     imageUrl: row.imageUrl,
     status: row.status as TreeNode["status"],
     createdAt: toIso(row.createdAt),
@@ -91,9 +91,6 @@ function mapGenerationTask(row: typeof generationTasksTable.$inferSelect): Gener
     actionType: row.actionType as GenerationTask["actionType"],
     targetNodeId: row.targetNodeId,
     status: row.status as GenerationTask["status"],
-    confirmationRequired: row.confirmationRequired,
-    confirmationStatus: row.confirmationStatus as GenerationTask["confirmationStatus"],
-    rewrittenIntentForConfirmation: row.rewrittenIntentForConfirmation,
     branchCount: row.branchCount,
     transcriptText: row.transcriptText,
     designIntentSummary: row.designIntentSummary,
@@ -171,6 +168,7 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .insert(sessionsTable)
           .values({
             id: randomUUID(),
+            ownerUserId: input.ownerUserId,
             title: input.title,
             goal: input.goal,
             productDomain: "industrial_design",
@@ -195,6 +193,14 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .where(eq(sessionsTable.id, sessionId))
           .limit(1);
         return rows[0] ? mapSession(rows[0]) : null;
+      },
+      async listByOwnerUserId(ownerUserId: string): Promise<Session[]> {
+        const rows = await db
+          .select()
+          .from(sessionsTable)
+          .where(eq(sessionsTable.ownerUserId, ownerUserId))
+          .orderBy(desc(sessionsTable.updatedAt));
+        return rows.map(mapSession);
       },
       async updateAfterNodesCreated(
         input: UpdateSessionAfterNodesInput
@@ -238,6 +244,20 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .where(eq(messagesTable.sessionId, sessionId))
           .orderBy(asc(messagesTable.createdAt));
         return rows.map(mapMessage);
+      },
+      async getLatestMemorySummary(sessionId: string): Promise<Message | null> {
+        const rows = await db
+          .select()
+          .from(messagesTable)
+          .where(
+            and(
+              eq(messagesTable.sessionId, sessionId),
+              eq(messagesTable.kind, "memory_summary")
+            )
+          )
+          .orderBy(desc(messagesTable.createdAt))
+          .limit(1);
+        return rows[0] ? mapMessage(rows[0]) : null;
       }
     },
     treeNodes: {
@@ -275,6 +295,7 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
               formLanguage: node.formLanguage,
               userNeedResponse: node.userNeedResponse,
               inspirationHints: node.inspirationHints,
+              suggestedFollowups: node.suggestedFollowups,
               imageUrl: node.imageUrl,
               status: node.status,
               createdAt: now,
@@ -328,11 +349,11 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
             actionType: input.actionType,
             branchCount: input.branchCount,
             status: "queued",
-            confirmationRequired: input.confirmationRequired,
+            confirmationRequired: false,
             confirmationStatus: "not_required",
             transcriptText: input.transcriptText,
             designIntentSummary: input.designIntentSummary,
-            rewrittenIntentForConfirmation: input.rewrittenIntentForConfirmation,
+            rewrittenIntentForConfirmation: null,
             assistantReply: input.assistantReply,
             errorMessage: null,
             createdAt: now,
@@ -365,23 +386,6 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .set({
             status: input.status,
             errorMessage: input.errorMessage,
-            updatedAt: new Date()
-          })
-          .where(eq(generationTasksTable.id, input.taskId))
-          .returning();
-        return updated[0]
-          ? getGenerationTaskWithBranches(db, input.taskId)
-          : null;
-      },
-      async updateConfirmation(
-        input: UpdateTaskConfirmationInput
-      ): Promise<GenerationTask | null> {
-        const nextState = resolveTaskStateAfterConfirmation(input.decision);
-        const updated = await db
-          .update(generationTasksTable)
-          .set({
-            status: nextState.status,
-            confirmationStatus: nextState.confirmationStatus,
             updatedAt: new Date()
           })
           .where(eq(generationTasksTable.id, input.taskId))
@@ -465,7 +469,9 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .where(eq(treeOperationsTable.taskId, taskId))
           .orderBy(desc(treeOperationsTable.createdAt))
           .limit(10);
-        const operation = rows.find((row) => row.type !== "undo");
+        const operation = rows.find(
+          (row) => row.type !== "undo" && row.type !== "redo"
+        );
         return operation ? mapTreeOperation(operation) : null;
       },
       async getLastUndoableBySessionId(

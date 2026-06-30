@@ -7,6 +7,7 @@ import type {
 } from "@voice-industrial-design/shared";
 
 import type { WorkbenchServerState } from "./types";
+import { DEFAULT_ROOT_REQUIREMENT, DEFAULT_SESSION_TITLE } from "./copy";
 
 const DEFAULT_DEV_API_PORT = "8787";
 
@@ -32,6 +33,12 @@ function resolveApiBaseUrl(): string {
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
+
+let accessTokenProvider: (() => Promise<string | null> | string | null) | null =
+  null;
+let siliconFlowApiKeyProvider:
+  | (() => Promise<string | null> | string | null)
+  | null = null;
 
 type CreateSessionResponse = {
   session: Session;
@@ -62,6 +69,18 @@ type TreeOperationResponse = {
 type TranscriptionResponse = {
   transcriptText: string;
 };
+
+export function setAccessTokenProvider(
+  provider: (() => Promise<string | null> | string | null) | null
+): void {
+  accessTokenProvider = provider;
+}
+
+export function setSiliconFlowApiKeyProvider(
+  provider: (() => Promise<string | null> | string | null) | null
+): void {
+  siliconFlowApiKeyProvider = provider;
+}
 
 class ApiClientError extends Error {
   status: number;
@@ -96,14 +115,37 @@ export function isSessionNotFoundError(error: unknown): boolean {
   );
 }
 
+async function createAuthHeaders(): Promise<Record<string, string>> {
+  const accessToken = accessTokenProvider
+    ? await accessTokenProvider()
+    : null;
+  const siliconFlowApiKey = siliconFlowApiKeyProvider
+    ? await siliconFlowApiKeyProvider()
+    : null;
+
+  const headers: Record<string, string> = {};
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  if (siliconFlowApiKey) {
+    headers["x-siliconflow-api-key"] = siliconFlowApiKey;
+  }
+
+  return headers;
+}
+
 async function requestJson<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
+  const authHeaders = await createAuthHeaders();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders,
       ...init?.headers
     }
   });
@@ -117,8 +159,10 @@ async function requestJson<T>(
 }
 
 async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+  const authHeaders = await createAuthHeaders();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
+    headers: authHeaders,
     body: formData
   });
 
@@ -134,8 +178,8 @@ export async function createWorkbenchSession(): Promise<Session> {
   const response = await requestJson<CreateSessionResponse>("/api/sessions", {
     method: "POST",
     body: JSON.stringify({
-      title: "AI 语音工业设计脑暴",
-      goal: "围绕桌面智能设备生成早期工业设计方向"
+      title: DEFAULT_SESSION_TITLE,
+      goal: DEFAULT_ROOT_REQUIREMENT
     })
   });
 
@@ -249,7 +293,8 @@ export async function requestSessionRedo(
   const response = await requestJson<TreeOperationResponse>(
     `/api/sessions/${sessionId}/redo`,
     {
-      method: "POST"
+      method: "POST",
+      body: JSON.stringify({})
     }
   );
 

@@ -13,11 +13,18 @@ export interface AppConfig {
   deepSeekApiKey: string | null;
   deepSeekBaseUrl: string | null;
   deepSeekBrainstormModel: string | null;
+  deepSeekImagePromptModel: string | null;
+  imagePromptWriterEnabled: boolean;
   siliconFlowApiKey: string | null;
   siliconFlowBaseUrl: string | null;
   siliconFlowAsrModel: string | null;
   siliconFlowBrainstormModel: string | null;
   siliconFlowImageModel: string | null;
+  siliconFlowChatModel: string | null;
+  supabaseUrl: string | null;
+  supabaseJwtSecret: string | null;
+  supabaseJwtAudience: string;
+  diagnosticsToken: string | null;
   defaultBranchCount: number;
   maxBranchCount: number;
   sessionDomain: "industrial_design";
@@ -76,15 +83,38 @@ export function loadConfig(
       mergedEnv.DEEPSEEK_BRAINSTORM_MODEL ??
       mergedEnv.DEEPSEEK_MODEL ??
       null,
+    deepSeekImagePromptModel:
+      mergedEnv.DEEPSEEK_IMAGE_PROMPT_MODEL ??
+      mergedEnv.DEEPSEEK_BRAINSTORM_MODEL ??
+      mergedEnv.DEEPSEEK_MODEL ??
+      null,
+    imagePromptWriterEnabled:
+      parseBoolean(mergedEnv.IMAGE_PROMPT_WRITER_ENABLED) ?? false,
     siliconFlowApiKey: mergedEnv.SILICONFLOW_API_KEY ?? null,
     siliconFlowBaseUrl: mergedEnv.SILICONFLOW_BASE_URL ?? null,
     siliconFlowAsrModel: mergedEnv.SILICONFLOW_ASR_MODEL ?? null,
     siliconFlowBrainstormModel: mergedEnv.SILICONFLOW_BRAINSTORM_MODEL ?? null,
     siliconFlowImageModel: mergedEnv.SILICONFLOW_IMAGE_MODEL ?? null,
+    siliconFlowChatModel:
+      mergedEnv.SILICONFLOW_CHAT_MODEL ??
+      mergedEnv.SILICONFLOW_BRAINSTORM_MODEL ??
+      null,
+    supabaseUrl: mergedEnv.SUPABASE_URL ?? null,
+    supabaseJwtSecret: mergedEnv.SUPABASE_JWT_SECRET ?? null,
+    supabaseJwtAudience: mergedEnv.SUPABASE_JWT_AUDIENCE ?? "authenticated",
+    diagnosticsToken: mergedEnv.DIAGNOSTICS_TOKEN ?? null,
     defaultBranchCount: Number(mergedEnv.DEFAULT_BRANCH_COUNT ?? 3),
     maxBranchCount: Number(mergedEnv.MAX_BRANCH_COUNT ?? 4),
     sessionDomain: "industrial_design"
   };
+}
+
+function parseBoolean(value: string | undefined): boolean | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
 function findDotEnvFile(startDir: string): string {

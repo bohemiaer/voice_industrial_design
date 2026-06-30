@@ -13,10 +13,8 @@ import type {
   ServerRepositories,
   UpdateBranchTaskInput,
   UpdateGenerationTaskStatusInput,
-  UpdateSessionAfterNodesInput,
-  UpdateTaskConfirmationInput
+  UpdateSessionAfterNodesInput
 } from "./types.js";
-import { resolveTaskStateAfterConfirmation } from "./types.js";
 
 interface MemoryStore {
   sessions: Map<string, Session>;
@@ -63,6 +61,7 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
         const timestamp = nowIso();
         const session: Session = {
           id: randomUUID(),
+          ownerUserId: input.ownerUserId,
           title: input.title,
           goal: input.goal,
           productDomain: "industrial_design",
@@ -80,6 +79,11 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
       },
       async getById(sessionId: string): Promise<Session | null> {
         return store.sessions.get(sessionId) ?? null;
+      },
+      async listByOwnerUserId(ownerUserId: string): Promise<Session[]> {
+        return [...store.sessions.values()]
+          .filter((session) => session.ownerUserId === ownerUserId)
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
       },
       async updateAfterNodesCreated(
         input: UpdateSessionAfterNodesInput
@@ -126,6 +130,18 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
         return store.messages
           .filter((message) => message.sessionId === sessionId)
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      },
+      async getLatestMemorySummary(sessionId: string): Promise<Message | null> {
+        return (
+          store.messages
+            .filter(
+              (message) =>
+                message.sessionId === sessionId &&
+                message.kind === "memory_summary"
+            )
+            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ??
+          null
+        );
       }
     },
     treeNodes: {
@@ -154,6 +170,7 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
             formLanguage: nodeInput.formLanguage,
             userNeedResponse: nodeInput.userNeedResponse,
             inspirationHints: nodeInput.inspirationHints,
+            suggestedFollowups: nodeInput.suggestedFollowups,
             imageUrl: nodeInput.imageUrl,
             status: nodeInput.status,
             createdAt: timestamp,
@@ -188,9 +205,6 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
           actionType: input.actionType,
           targetNodeId: input.targetNodeId,
           status: "queued",
-          confirmationRequired: input.confirmationRequired,
-          confirmationStatus: "not_required",
-          rewrittenIntentForConfirmation: input.rewrittenIntentForConfirmation,
           branchCount: input.branchCount,
           transcriptText: input.transcriptText,
           designIntentSummary: input.designIntentSummary,
@@ -231,26 +245,6 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
         const updated: GenerationTask = {
           ...current,
           status: input.status,
-          updatedAt: nowIso()
-        };
-
-        store.generationTasks.set(updated.id, updated);
-        return updated;
-      },
-      async updateConfirmation(
-        input: UpdateTaskConfirmationInput
-      ): Promise<GenerationTask | null> {
-        const current = store.generationTasks.get(input.taskId);
-
-        if (!current) {
-          return null;
-        }
-
-        const nextState = resolveTaskStateAfterConfirmation(input.decision);
-        const updated: GenerationTask = {
-          ...current,
-          status: nextState.status,
-          confirmationStatus: nextState.confirmationStatus,
           updatedAt: nowIso()
         };
 
@@ -348,7 +342,12 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
         return (
           [...store.treeOperations]
             .reverse()
-            .find((operation) => operation.taskId === taskId) ?? null
+            .find(
+              (operation) =>
+                operation.taskId === taskId &&
+                operation.type !== "undo" &&
+                operation.type !== "redo"
+            ) ?? null
         );
       },
       async getLastUndoableBySessionId(

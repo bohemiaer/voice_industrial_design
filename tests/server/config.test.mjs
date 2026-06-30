@@ -20,6 +20,8 @@ test("loadConfig reads DeepSeek chat settings plus SiliconFlow ASR/image setting
       "DEEPSEEK_API_KEY=deepseek-key",
       "DEEPSEEK_BASE_URL=https://api.deepseek.com",
       "DEEPSEEK_BRAINSTORM_MODEL=deepseek-v4-flash",
+      "DEEPSEEK_IMAGE_PROMPT_MODEL=deepseek-v4-prompt",
+      "IMAGE_PROMPT_WRITER_ENABLED=true",
       "SILICONFLOW_API_KEY=test-key",
       "SILICONFLOW_BASE_URL=https://api.example.test/v1",
       "SILICONFLOW_ASR_MODEL=asr-model",
@@ -33,6 +35,8 @@ test("loadConfig reads DeepSeek chat settings plus SiliconFlow ASR/image setting
   assert.equal(config.deepSeekApiKey, "deepseek-key");
   assert.equal(config.deepSeekBaseUrl, "https://api.deepseek.com");
   assert.equal(config.deepSeekBrainstormModel, "deepseek-v4-flash");
+  assert.equal(config.deepSeekImagePromptModel, "deepseek-v4-prompt");
+  assert.equal(config.imagePromptWriterEnabled, true);
   assert.equal(config.siliconFlowApiKey, "test-key");
   assert.equal(
     config.siliconFlowBaseUrl,

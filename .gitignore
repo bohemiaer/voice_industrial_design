@@ -38,3 +38,18 @@ __pycache__/
 
 # Local reference prototype
 frontend-refer/
+.vercel
+
+# Temp / generated
+_tmp_*
+tmp-*.png
+logs/
+
+# Standalone projects
+landing-page/
+social-card-voice-painting/
+
+# Docs development assets (images, plans)
+docs/*.png
+docs/**/*.png
+docs/**/*.jpg

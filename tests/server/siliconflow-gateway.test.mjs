@@ -15,6 +15,8 @@ const baseConfig = {
   deepSeekApiKey: "ds-test",
   deepSeekBaseUrl: "https://api.deepseek.com",
   deepSeekBrainstormModel: "deepseek-v4-flash",
+  deepSeekImagePromptModel: "deepseek-v4-prompt",
+  imagePromptWriterEnabled: false,
   siliconFlowApiKey: "sk-test",
   siliconFlowBaseUrl: "https://api.siliconflow.cn/v1",
   siliconFlowAsrModel: "FunAudioLLM/SenseVoiceSmall",
@@ -129,7 +131,6 @@ function createAssistantOutput() {
     branchCount: 3,
     designIntentSummary: "生成首层方向",
     assistantReply: "生成三个方向",
-    confirmationRequired: false,
     promptHints: ["工业设计草图"],
     directionBriefs: [1, 2, 3].map((index) => ({
       briefId: `brief-${index}`,
@@ -140,6 +141,7 @@ function createAssistantOutput() {
       formLanguage: ["轻薄"],
       userNeedResponse: ["便携"],
       inspirationHints: ["消费电子"],
+      suggestedFollowups: ["继续细化比例", "强化材质方向", "探索交互细节"],
       variationAxis: "形态差异",
       promptIntent: "早期工业设计草图"
     }))
@@ -240,7 +242,8 @@ test("runBrainstormAssistant sends JSON mode chat completion request directly to
   assert.match(body.messages[0].content, /actionType/);
   assert.match(body.messages[0].content, /directionBriefs/);
   assert.match(body.messages[0].content, /targetNodeId/);
-  assert.match(body.messages[0].content, /rewrittenIntentForConfirmation/);
+  assert.doesNotMatch(body.messages[0].content, /rewrittenIntentForConfirmation/);
+  assert.doesNotMatch(body.messages[0].content, /confirmationRequired/);
   assert.equal(body.messages[1].role, "user");
   assert.match(body.messages[1].content, /示例输入 1/);
   assert.equal(body.messages[2].role, "assistant");
@@ -280,6 +283,84 @@ test("runBrainstormAssistant keeps the original root goal explicit in later-turn
   assert.match(body.messages.at(-1).content, /ancestorPath/);
 });
 
+test("runChatAssistant sends a JSON mode chat completion request", async () => {
+  const calls = [];
+  const gateway = await createGateway(async (url, init) => {
+    calls.push({ url, init });
+    return jsonResponse({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              assistantReply: "当前节点强调轻薄悬浮，适合继续探索更低压迫感的桌面方案。"
+            })
+          }
+        }
+      ]
+    });
+  });
+
+  const result = await gateway.runChatAssistant({
+    userIntentText: "解释一下当前节点",
+    chatType: "explain_node",
+    sessionGoal: "探索桌面补光设备",
+    conversationHistory: [],
+    selectedNode: {
+      nodeId: "node-1",
+      displayName: "轻薄悬浮感",
+      intentSummary: "压缩体量并强化悬浮底座。"
+    }
+  });
+
+  assert.match(result.assistantReply, /轻薄悬浮/);
+  assert.equal(calls[0].url, "https://api.deepseek.com/chat/completions");
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.model, "deepseek-v4-flash");
+  assert.deepEqual(body.response_format, { type: "json_object" });
+  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.match(body.messages[0].content, /只读对话助理/);
+  assert.match(body.messages.at(-1).content, /解释一下当前节点/);
+});
+
+test("runMemorySummarizer returns structured memory from JSON mode", async () => {
+  const gateway = await createGateway(async () =>
+    jsonResponse({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              stablePreferences: ["轻薄"],
+              activeConstraints: ["办公桌面"],
+              rejectedDirections: ["厚重机械感"],
+              openQuestions: [],
+              shortSummary: "用户偏好轻薄、办公友好的方向。"
+            })
+          }
+        }
+      ]
+    })
+  );
+
+  const result = await gateway.runMemorySummarizer({
+    sessionGoal: "探索桌面补光设备",
+    recentMessages: [
+      {
+        role: "user",
+        kind: "transcript",
+        content: "不要太厚重"
+      },
+      {
+        role: "assistant",
+        kind: "summary",
+        content: "会保持轻薄。"
+      }
+    ]
+  });
+
+  assert.deepEqual(result.stablePreferences, ["轻薄"]);
+  assert.equal(result.shortSummary.includes("轻薄"), true);
+});
+
 test("generateSketch sends image generation request and maps returned image URL", async () => {
   const calls = [];
   const gateway = await createGateway(async (url, init) => {
@@ -297,8 +378,47 @@ test("generateSketch sends image generation request and maps returned image URL"
   assert.equal(calls[0].url, "https://api.siliconflow.cn/v1/images/generations");
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.model, "Tongyi-MAI/Z-Image-Turbo");
-  assert.match(body.prompt, /早期工业设计草图/);
+  assert.match(body.prompt, /方向名称：方向 1/);
+  assert.match(body.prompt, /差异轴：形态差异/);
+  assert.match(body.prompt, /早期工业设计草图，白底，线稿，少量灰度阴影，强调可比较的产品形态。/);
+  assert.match(body.prompt, /少量灰度阴影/);
+  assert.match(body.prompt, /3:2 横向画幅/);
+  assert.match(body.prompt, /产品主体完整可见/);
+  assert.doesNotMatch(body.prompt, /精心手绘工业设计提案图|白底工业设计概念提案页|线稿为主|淡彩马克笔|中文概念标题|小辅助视图|不要生成三个并排|线条必须有序|辅助线必须克制|体积光影|接近评审稿/);
+  assert.match(body.negative_prompt, /photorealistic/);
+  assert.match(body.negative_prompt, /final render/);
+  assert.match(body.negative_prompt, /advertisement/);
+  assert.match(body.negative_prompt, /\btext\b/);
+  assert.equal(body.image_size, "768x512");
   assert.equal(body.batch_size, 1);
+});
+
+test("generateSketch keeps the MVP rule prompt even when Prompt Writer is enabled", async () => {
+  const calls = [];
+  const gateway = await createGateway(async (url, init) => {
+    calls.push({ url, init });
+
+    if (url === "https://api.deepseek.com/chat/completions") {
+      throw new Error("Prompt writer should not be called for sketch generation");
+    }
+
+    return jsonResponse({
+      images: [{ url: "https://example.com/generated-mvp.png" }],
+      seed: 34
+    });
+  }, { imagePromptWriterEnabled: true });
+
+  const result = await gateway.generateSketch(createSketchInput());
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://api.siliconflow.cn/v1/images/generations");
+  const imageBody = JSON.parse(calls[0].init.body);
+  assert.match(imageBody.prompt, /方向名称：方向 1/);
+  assert.match(imageBody.prompt, /早期工业设计草图，白底，线稿，少量灰度阴影，强调可比较的产品形态。/);
+  assert.match(imageBody.prompt, /3:2 横向画幅/);
+  assert.doesNotMatch(imageBody.prompt, /LLM-written|精心手绘工业设计提案图|中文概念标题/);
+  assert.match(result.promptUsed, /方向名称：方向 1/);
+  assert.equal(result.visualSummary, "方向 1 的早期工业设计草图。");
 });
 
 test("SiliconFlow gateway retries 429 responses and parses the successful retry", async () => {
@@ -369,6 +489,7 @@ test("runBrainstormAssistant normalizes lightly malformed DeepSeek branch payloa
                   formLanguage: ["圆润", "包裹"],
                   userNeedResponse: ["亲和感"],
                   inspirationHints: ["家居产品"],
+                  suggestedFollowups: ["继续细化比例", "强化材质方向", "探索交互细节"],
                   variationAxis: "边界处理",
                   promptIntent: "白底工业设计草图"
                 }
@@ -390,32 +511,6 @@ test("runBrainstormAssistant normalizes lightly malformed DeepSeek branch payloa
   assert.deepEqual(result.directionBriefs[0].userNeedResponse, ["降低压迫感"]);
   assert.equal(result.directionBriefs[0].variationAxis, "体量感");
   assert.equal(result.directionBriefs[0].targetParentNodeId, "session-1");
-});
-
-test("runBrainstormAssistant falls back to assistantReply when confirmation intent is omitted", async () => {
-  const gateway = await createGateway(async () =>
-    jsonResponse({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              ...createAssistantOutput(),
-              confirmationRequired: true,
-              rewrittenIntentForConfirmation: undefined
-            })
-          }
-        }
-      ]
-    })
-  );
-
-  const result = await gateway.runBrainstormAssistant(createBrainstormInput());
-
-  assert.equal(result.confirmationRequired, true);
-  assert.equal(
-    result.rewrittenIntentForConfirmation,
-    result.assistantReply
-  );
 });
 
 test("runBrainstormAssistant salvages fenced JSON and normalizes branch metadata", async () => {

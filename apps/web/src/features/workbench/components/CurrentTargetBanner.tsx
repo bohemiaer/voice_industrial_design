@@ -16,7 +16,7 @@ export function CurrentTargetBanner({
       <div>
         <span className="target-banner__label">Current target</span>
         <h3>
-          NODE {currentTargetNode?.publicNodeNumber ?? selectedNode.publicNodeNumber} ·{" "}
+          节点 {currentTargetNode?.publicNodeNumber ?? selectedNode.publicNodeNumber} ·{" "}
           {currentTargetNode?.displayName ?? selectedNode.displayName}
         </h3>
       </div>

@@ -2,7 +2,6 @@ import type {
   BrainstormActionType,
   BranchTask,
   BranchTaskStatus,
-  ConfirmationStatus,
   GenerationTask,
   Message,
   MessageKind,
@@ -16,6 +15,7 @@ import type {
 } from "@voice-industrial-design/shared";
 
 export interface CreateSessionInput {
+  ownerUserId: string;
   title: string;
   goal: string;
 }
@@ -36,13 +36,6 @@ export interface CreateGenerationTaskInput {
   transcriptText: string;
   designIntentSummary: string;
   assistantReply: string;
-  confirmationRequired: boolean;
-  rewrittenIntentForConfirmation: string | null;
-}
-
-export interface UpdateTaskConfirmationInput {
-  taskId: string;
-  decision: "confirm" | "cancel";
 }
 
 export interface CreateTreeOperationInput {
@@ -77,6 +70,7 @@ export interface CreateTreeNodeInput {
   formLanguage: string[];
   userNeedResponse: string[];
   inspirationHints: string[];
+  suggestedFollowups: string[];
   imageUrl: string | null;
   status: TreeNodeStatus;
 }
@@ -117,6 +111,7 @@ export interface ServerRepositories {
   sessions: {
     create(input: CreateSessionInput): Promise<Session>;
     getById(sessionId: string): Promise<Session | null>;
+    listByOwnerUserId(ownerUserId: string): Promise<Session[]>;
     updateAfterNodesCreated(
       input: UpdateSessionAfterNodesInput
     ): Promise<Session | null>;
@@ -124,6 +119,7 @@ export interface ServerRepositories {
   messages: {
     create(input: CreateMessageInput): Promise<Message>;
     listBySessionId(sessionId: string): Promise<Message[]>;
+    getLatestMemorySummary(sessionId: string): Promise<Message | null>;
   };
   treeNodes: {
     listBySessionId(sessionId: string): Promise<TreeNode[]>;
@@ -140,9 +136,6 @@ export interface ServerRepositories {
     getRunningBySessionId(sessionId: string): Promise<GenerationTask | null>;
     updateStatus(
       input: UpdateGenerationTaskStatusInput
-    ): Promise<GenerationTask | null>;
-    updateConfirmation(
-      input: UpdateTaskConfirmationInput
     ): Promise<GenerationTask | null>;
   };
   branchTasks: {
@@ -163,21 +156,3 @@ export interface AppServices {
   persistenceMode: "postgres" | "memory";
 }
 
-export function resolveTaskStateAfterConfirmation(
-  decision: "confirm" | "cancel"
-): {
-  status: TaskStatus;
-  confirmationStatus: ConfirmationStatus;
-} {
-  if (decision === "confirm") {
-    return {
-      status: "generating",
-      confirmationStatus: "confirmed"
-    };
-  }
-
-  return {
-    status: "cancelled",
-    confirmationStatus: "cancelled"
-  };
-}

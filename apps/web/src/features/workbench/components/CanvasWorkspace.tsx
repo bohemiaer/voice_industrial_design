@@ -14,6 +14,7 @@ import type { TreeNode } from "@voice-industrial-design/shared";
 
 import { useWorkbenchStore } from "../store";
 import type { NodePalette } from "../types";
+import { resolveRootNodeDisplayName } from "../copy";
 import { createNodeUiMeta, createSymmetricTreeLayout } from "../uiMeta";
 import {
   BrainstormNodeCard,
@@ -29,6 +30,9 @@ const connectorPalette: Record<NodePalette, string> = {
   mist: "#8eb2ff",
   ghost: "#d5dbe4"
 };
+const nodeCardWidth = 290;
+const suggestionTreeWidth = 410;
+const suggestionTreeOverhang = (suggestionTreeWidth - nodeCardWidth) / 2;
 
 const toolbarItems = [
   { label: "全局显示", icon: "selectionCursor" },
@@ -53,45 +57,8 @@ const edgeTypes = {
   workbenchBezier: WorkbenchBezierEdge
 } satisfies EdgeTypes;
 
-const DEFAULT_SESSION_TITLE = "AI 语音工业设计脑暴";
-
-function extractProductName(text: string): string | null {
-  const normalized = text.trim();
-
-  if (!normalized) {
-    return null;
-  }
-
-  const patterns = [
-    /围绕(.+?)(生成|做|展开|延展|发散|设计|探索)/,
-    /探索(.+?)(的|方向|方案|概念)/,
-    /设计(?:一款|一个|一台|一种)?(.+?)(，|。|,|\.|并|让|要|用于)/
-  ];
-
-  for (const pattern of patterns) {
-    const match = normalized.match(pattern);
-
-    if (match?.[1]) {
-      return match[1].trim();
-    }
-  }
-
-  return null;
-}
-
-function resolveRootNodeDisplayName(session: {
-  title: string;
-  goal: string;
-}, rootIntentSummary: string): string {
-  if (
-    session.title !== DEFAULT_SESSION_TITLE &&
-    session.title.trim().length > 0
-  ) {
-    return session.title;
-  }
-
-  return extractProductName(rootIntentSummary) ?? truncateRootText(rootIntentSummary);
-}
+const exportCardWidth = 400;
+const exportCardHeight = 470;
 
 function resolveRootNodeLabel(
   session: { title: string; goal: string },
@@ -118,14 +85,135 @@ function findFirstUserTranscript(messages: Array<{
   return firstUserTranscript?.content ?? null;
 }
 
-function truncateRootText(text: string): string {
-  const normalized = text.trim();
+function sanitizeFileSegment(value: string): string {
+  return value.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, "-").slice(0, 80);
+}
 
-  if (normalized.length <= 16) {
-    return normalized || "产品需求";
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function fetchImageDataUrl(imageUrl: string): Promise<string> {
+  const response = await fetch(imageUrl);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
   }
 
-  return `${normalized.slice(0, 16)}...`;
+  return readBlobAsDataUrl(await response.blob());
+}
+
+async function resolveExportImageHref(imageUrl: string): Promise<string> {
+  try {
+    return await fetchImageDataUrl(imageUrl);
+  } catch {
+    return imageUrl;
+  }
+}
+
+function wrapExportText(value: string, maxCharacters: number, maxLines: number): string[] {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const lines: string[] = [];
+  let current = "";
+
+  for (const character of normalized) {
+    if (current.length >= maxCharacters) {
+      lines.push(current);
+      current = "";
+    }
+
+    current += character;
+
+    if (lines.length === maxLines) {
+      break;
+    }
+  }
+
+  if (current && lines.length < maxLines) {
+    lines.push(current);
+  }
+
+  if (lines.length === maxLines && normalized.length > lines.join("").length) {
+    lines[maxLines - 1] = `${lines[maxLines - 1].slice(0, -1)}...`;
+  }
+
+  return lines;
+}
+
+function renderExportTspans(input: {
+  lines: string[];
+  x: number;
+  y: number;
+  lineHeight: number;
+}): string {
+  return input.lines
+    .map((line, index) => {
+      if (index === 0) {
+        return `<tspan x="${input.x}" y="${input.y}">${escapeHtml(line)}</tspan>`;
+      }
+
+      return `<tspan x="${input.x}" dy="${input.lineHeight}">${escapeHtml(line)}</tspan>`;
+    })
+    .join("");
+}
+
+function createNodeExportSvg(node: TreeNode, imageHref: string): string {
+  const titleLines = wrapExportText(node.displayName, 11, 2);
+  const summaryLines = wrapExportText(node.intentSummary, 17, 3);
+  const summaryY = 146 + Math.max(titleLines.length - 1, 0) * 32;
+  const imageY = Math.min(summaryY + summaryLines.length * 28 + 26, 220);
+
+  // SVG is exported directly to avoid tainted canvas failures from cross-origin generated images.
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="${exportCardWidth}" height="${exportCardHeight}" viewBox="0 0 ${exportCardWidth} ${exportCardHeight}">
+  <defs>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1d232b" flood-opacity="0.10"/>
+    </filter>
+    <clipPath id="imageClip">
+      <rect x="31" y="${imageY}" width="334" height="222" rx="15" ry="15"/>
+    </clipPath>
+  </defs>
+  <rect width="400" height="470" fill="#f4f5f3"/>
+  <rect x="0.5" y="6.5" width="399" height="466" rx="26" fill="#ffffff" stroke="#cfd6e0" filter="url(#cardShadow)"/>
+  <circle cx="200" cy="6" r="6" fill="#ffffff" stroke="#cfd6e0" stroke-width="3"/>
+  <text x="31" y="44" fill="#6f7784" font-size="14" font-weight="800" letter-spacing="4" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">节点 ${node.publicNodeNumber}</text>
+  <circle cx="360" cy="40" r="6" fill="#b7bec8"/>
+  <line x1="7" y1="70" x2="392" y2="70" stroke="#dde2e8"/>
+  <text fill="#0f1720" font-size="28" font-weight="900" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    ${renderExportTspans({ lines: titleLines, x: 31, y: 118, lineHeight: 32 })}
+  </text>
+  <text fill="#6b7280" font-size="18" font-weight="500" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    ${renderExportTspans({ lines: summaryLines, x: 31, y: summaryY, lineHeight: 28 })}
+  </text>
+  <rect x="31" y="${imageY}" width="334" height="222" rx="15" fill="#f4f6f8" stroke="#d7dde5"/>
+  <image href="${escapeHtml(imageHref)}" x="31" y="${imageY}" width="334" height="222" preserveAspectRatio="xMidYMid slice" clip-path="url(#imageClip)"/>
+</svg>`;
+}
+
+async function renderNodeExportImage(node: TreeNode): Promise<Blob> {
+  if (!node.imageUrl) {
+    throw new Error("节点没有可导出的图片");
+  }
+
+  const imageHref = await resolveExportImageHref(node.imageUrl);
+  const svg = createNodeExportSvg(node, imageHref);
+
+  return new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
 }
 
 function ToolbarGlyph({ icon }: { icon: string }) {
@@ -134,10 +222,10 @@ function ToolbarGlyph({ icon }: { icon: string }) {
   }
 
   const commonProps = {
-    viewBox: "0 0 20 20",
+    viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.6,
+    strokeWidth: 2.2,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const
   };
@@ -145,57 +233,56 @@ function ToolbarGlyph({ icon }: { icon: string }) {
   const paths: Record<string, JSX.Element> = {
     selectionCursor: (
       <svg {...commonProps}>
-        <path d="M4 4h5" />
-        <path d="M4 4v5" />
-        <path d="M16 16h-5" />
-        <path d="M16 16v-5" />
-        <path d="M7 10h6" />
-        <path d="M10 7v6" />
+        <rect x="5" y="5" width="6" height="6" rx="1.4" />
+        <rect x="13" y="13" width="6" height="6" rx="1.4" />
+        <path d="M11 8h5" />
+        <path d="M16 8v5" />
       </svg>
     ),
     hand: (
       <svg {...commonProps}>
-        <path d="M7.2 9V4.8a1 1 0 0 1 2 0V8" />
-        <path d="M10 8V4a1 1 0 1 1 2 0v4" />
-        <path d="M12.8 8.6V5.2a1 1 0 1 1 2 0V11c0 3-2.2 5-4.9 5-2.4 0-4-.9-5.2-3.4L3.6 10a1 1 0 0 1 1.8-1l1 1.6V7.8a1 1 0 0 1 2 0V9" />
+        <path d="M7.8 12.1V8.4a1.25 1.25 0 0 1 2.5 0v4" />
+        <path d="M10.3 11.5V6.7a1.25 1.25 0 0 1 2.5 0v4.8" />
+        <path d="M12.8 11.6V7.3a1.25 1.25 0 0 1 2.5 0v4.9" />
+        <path d="M15.3 12.7V9.1a1.25 1.25 0 0 1 2.5 0v4.1c0 4.3-2.7 7-6.5 7-2.8 0-4.6-1.3-5.8-3.7l-.9-1.8a1.2 1.2 0 0 1 2.1-1.2l1.1 1.7v-3.1" />
       </svg>
     ),
     frame: (
       <svg {...commonProps}>
-        <path d="M5 7V5h3" />
-        <path d="M12 5h3v3" />
-        <path d="M15 13v2h-3" />
-        <path d="M8 15H5v-3" />
+        <path d="M5 9V5h4" />
+        <path d="M15 5h4v4" />
+        <path d="M19 15v4h-4" />
+        <path d="M9 19H5v-4" />
       </svg>
     ),
     minus: (
       <svg {...commonProps}>
-        <path d="M5 10h10" />
+        <path d="M6 12h12" />
       </svg>
     ),
     plus: (
       <svg {...commonProps}>
-        <path d="M10 5v10" />
-        <path d="M5 10h10" />
+        <path d="M12 6v12" />
+        <path d="M6 12h12" />
       </svg>
     ),
     undo: (
       <svg {...commonProps}>
-        <path d="M7 6 4 9l3 3" />
-        <path d="M5 9h6a4 4 0 1 1 0 8" />
+        <path d="m9 8-4 4 4 4" />
+        <path d="M5 12h9a4.5 4.5 0 1 1 0 9h-2" />
       </svg>
     ),
     redo: (
       <svg {...commonProps}>
-        <path d="m13 6 3 3-3 3" />
-        <path d="M15 9H9a4 4 0 1 0 0 8" />
+        <path d="m15 8 4 4-4 4" />
+        <path d="M19 12h-9a4.5 4.5 0 1 0 0 9h2" />
       </svg>
     ),
     export: (
       <svg {...commonProps}>
-        <path d="M10 4v8" />
-        <path d="m7 7 3-3 3 3" />
-        <path d="M5 12v2a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-2" />
+        <path d="M12 4v10" />
+        <path d="m8 8 4-4 4 4" />
+        <path d="M5 14v3.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V14" />
       </svg>
     )
   };
@@ -207,10 +294,12 @@ export function CanvasWorkspace() {
   const serverState = useWorkbenchStore((state) => state.serverState);
   const uiState = useWorkbenchStore((state) => state.uiState);
   const selectNode = useWorkbenchStore((state) => state.selectNode);
+  const setInputDraft = useWorkbenchStore((state) => state.setInputDraft);
   const requestUndo = useWorkbenchStore((state) => state.requestUndo);
   const requestRedo = useWorkbenchStore((state) => state.requestRedo);
   const { fitBounds, fitView, getViewport, setViewport, zoomIn, zoomOut } = useReactFlow();
   const viewportSnapshotRef = useRef<Viewport | null>(null);
+  const workspacePaneRef = useRef<HTMLElement | null>(null);
   const [isGlobalPreview, setIsGlobalPreview] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const historyDisabled =
@@ -255,6 +344,11 @@ export function CanvasWorkspace() {
       formLanguage: [],
       userNeedResponse: [],
       inspirationHints: [],
+      suggestedFollowups: [
+        "先发散三个造型方向",
+        "更强调使用场景",
+        "补充材质和品牌气质"
+      ],
       imageUrl: null,
       status: "ready",
       createdAt: serverState.session.createdAt,
@@ -302,15 +396,26 @@ export function CanvasWorkspace() {
         x: 80,
         y: 70 + node.depth * 440
       };
+      const hasSuggestedFollowups =
+        Boolean(node.parentNodeId) &&
+        node.status !== "generating" &&
+        node.suggestedFollowups.length > 0;
       const meta = {
         ...createNodeUiMeta(node, index),
         position: layoutPosition
       };
+      const flowPosition = hasSuggestedFollowups
+        ? {
+            ...layoutPosition,
+            x: layoutPosition.x - suggestionTreeOverhang
+          }
+        : layoutPosition;
 
       return {
         id: node.id,
         type: "brainstorm",
-        position: layoutPosition,
+        position: flowPosition,
+        style: hasSuggestedFollowups ? { width: suggestionTreeWidth } : undefined,
         sourcePosition: Position.Bottom,
         targetPosition: Position.Top,
         selected: uiState.currentNodeId === node.id,
@@ -321,13 +426,15 @@ export function CanvasWorkspace() {
           hasChildren: (childMap[node.id] ?? []).length > 0,
           isCurrentTarget: uiState.currentNodeId === node.id,
           showRootPromptHints: node.id === serverState.session.id && !hasConfirmedRootIntent,
-          onSelect: selectNode
+          onSelect: selectNode,
+          onSuggestedFollowupClick: setInputDraft
         }
       };
     });
   }, [
     childMap,
     selectNode,
+    setInputDraft,
     serverState.session.id,
     uiState.currentNodeId,
     hasConfirmedRootIntent,
@@ -354,14 +461,15 @@ export function CanvasWorkspace() {
     const expandedWidth = Math.max(bounds.width * 2, 720);
     const expandedHeight = Math.max(
       expandedWidth / Math.max(viewportAspectRatio, 1),
-      bounds.height * 1.12,
-      320
+      bounds.height + 280,
+      520
     );
+    const topPadding = (expandedHeight - bounds.height) * 0.28;
 
     void fitBounds(
       {
         x: bounds.x - (expandedWidth - bounds.width) / 2,
-        y: bounds.y - (expandedHeight - bounds.height) / 2,
+        y: bounds.y - topPadding,
         width: expandedWidth,
         height: expandedHeight
       },
@@ -374,21 +482,63 @@ export function CanvasWorkspace() {
     return true;
   }, [fitBounds, nodes, uiState.latestGeneratedNodeIds]);
 
+  const focusDefaultWorkspace = useCallback(() => {
+    const workspacePane = workspacePaneRef.current;
+    const rootCard = workspacePane?.querySelector(".node-card.is-root");
+
+    if (!workspacePane || !rootCard) {
+      return;
+    }
+
+    const paneRect = workspacePane.getBoundingClientRect();
+    const rootRect = rootCard.getBoundingClientRect();
+    const currentViewport = getViewport();
+    const desiredCenterX = paneRect.left + paneRect.width * 0.5;
+    const desiredCenterY = paneRect.top + paneRect.height * 0.42;
+    const currentCenterX = rootRect.left + rootRect.width / 2;
+    const currentCenterY = rootRect.top + rootRect.height / 2;
+
+    void setViewport(
+      {
+        ...currentViewport,
+        x: currentViewport.x + desiredCenterX - currentCenterX,
+        y: currentViewport.y + desiredCenterY - currentCenterY
+      },
+      { duration: 420 }
+    );
+  }, [getViewport, setViewport]);
+
   useEffect(() => {
     if (isGlobalPreview) {
       return;
     }
 
-    const fitViewTimer = window.setTimeout(() => {
+    const focusTimers = [120, 360, 720].map((delay) => window.setTimeout(() => {
       if (focusLatestPreview()) {
         return;
       }
 
-      fitView({ padding: 0.2, minZoom: 0.48, maxZoom: 0.88, duration: 420 });
-    }, 80);
+      focusDefaultWorkspace();
+    }, delay));
 
-    return () => window.clearTimeout(fitViewTimer);
-  }, [fitView, flowNodeIds, focusLatestPreview, isGlobalPreview]);
+    return () => {
+      focusTimers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [flowNodeIds, focusDefaultWorkspace, focusLatestPreview, isGlobalPreview]);
+
+  useEffect(() => {
+    if (isGlobalPreview) {
+      return;
+    }
+
+    const handleResize = () => {
+      window.requestAnimationFrame(focusDefaultWorkspace);
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, [focusDefaultWorkspace, isGlobalPreview]);
 
   const edges = useMemo<Edge[]>(() => {
     return visibleTreeNodes
@@ -440,48 +590,24 @@ export function CanvasWorkspace() {
     try {
       const { default: JSZip } = await import("jszip");
       const zip = new JSZip();
-      const failures: string[] = [];
 
       await Promise.all(
         exportableNodes.map(async (node) => {
-          try {
-            const response = await fetch(node.imageUrl as string);
+          const blob = await renderNodeExportImage(node);
 
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-
-            const blob = await response.blob();
-            const extensionMatch = new URL(node.imageUrl as string).pathname.match(/\.(png|jpg|jpeg|webp)$/i);
-            const extension =
-              extensionMatch?.[1]?.toLowerCase() === "jpeg"
-                ? "jpg"
-                : (extensionMatch?.[1]?.toLowerCase() ?? "png");
-
-            zip.file(
-              `node-${node.publicNodeNumber}-${node.displayName.replace(/[\\/:*?"<>|]/g, "-")}.${extension}`,
-              blob
-            );
-          } catch (error) {
-            failures.push(
-              `NODE ${node.publicNodeNumber} ${node.displayName}: ${
-                error instanceof Error ? error.message : "下载失败"
-              }`
-            );
-          }
+          zip.file(
+            `node-card-${node.publicNodeNumber}-${sanitizeFileSegment(node.displayName)}.svg`,
+            blob
+          );
         })
       );
-
-      if (failures.length > 0) {
-        zip.file("export-errors.txt", failures.join("\n"));
-      }
 
       const zipBlob = await zip.generateAsync({ type: "blob" });
       const downloadUrl = URL.createObjectURL(zipBlob);
       const link = document.createElement("a");
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       link.href = downloadUrl;
-      link.download = `voice-painting-images-${timestamp}.zip`;
+      link.download = `voice-painting-node-cards-${timestamp}.zip`;
       link.click();
       URL.revokeObjectURL(downloadUrl);
     } finally {
@@ -490,7 +616,7 @@ export function CanvasWorkspace() {
   }, [isExporting, serverState.nodes]);
 
   return (
-    <section className="workspace-pane" data-testid="canvas-panel">
+    <section className="workspace-pane" data-testid="canvas-panel" ref={workspacePaneRef}>
       <div className="toolbar">
         <div className="toolbar-group">
           {toolbarItems.map((item) => (
@@ -546,7 +672,7 @@ export function CanvasWorkspace() {
                   return;
                 }
 
-                void fitView({ padding: 0.2, minZoom: 0.48, maxZoom: 0.88, duration: 320 });
+                focusDefaultWorkspace();
               }}
             >
               <span className="toolbar-icon__glyph" aria-hidden="true">
