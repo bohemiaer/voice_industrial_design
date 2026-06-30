@@ -194,6 +194,14 @@ export function createDrizzleServices(db: ServerDatabase): AppServices {
           .limit(1);
         return rows[0] ? mapSession(rows[0]) : null;
       },
+      async listByOwnerUserId(ownerUserId: string): Promise<Session[]> {
+        const rows = await db
+          .select()
+          .from(sessionsTable)
+          .where(eq(sessionsTable.ownerUserId, ownerUserId))
+          .orderBy(desc(sessionsTable.updatedAt));
+        return rows.map(mapSession);
+      },
       async updateAfterNodesCreated(
         input: UpdateSessionAfterNodesInput
       ): Promise<Session | null> {

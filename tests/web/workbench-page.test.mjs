@@ -426,6 +426,17 @@ test("vercel deployment serves the Fastify API through a Next route handler", ()
   assert.match(nextApiRouteSource, /localhost\|127\\\.0\\\.0\\\.1/);
 });
 
+test("vercel api route fails fast instead of using memory persistence in production", () => {
+  assert.match(nextApiRouteSource, /PERSISTENCE_MODE/);
+  assert.match(nextApiRouteSource, /process\.env\.NODE_ENV === "production"/);
+  assert.match(nextApiRouteSource, /DATABASE_URL is required/);
+  assert.match(nextApiRouteSource, /throw new Error/);
+  assert.doesNotMatch(
+    nextApiRouteSource,
+    /return databaseUrl && !isLocalDatabaseUrl \? "postgres" : "memory"/
+  );
+});
+
 test("workbench store is live-api only and does not fall back to demo fixtures", () => {
   assert.equal(fs.existsSync(runtimeFixturesPath), false);
   assert.match(archivedFixturesSource, /workbenchFixtures/);

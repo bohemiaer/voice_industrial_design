@@ -55,6 +55,15 @@ export async function registerSessionRoutes(
     return reply.status(201).send({ session });
   });
 
+  app.get("/api/sessions", async (request) => {
+    const currentUser = requireAuth(request);
+    const sessions = await services.repositories.sessions.listByOwnerUserId(
+      currentUser.userId
+    );
+
+    return { sessions };
+  });
+
   app.get("/api/sessions/:sessionId/tree", async (request) => {
     const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };

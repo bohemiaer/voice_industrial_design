@@ -111,6 +111,7 @@ export interface ServerRepositories {
   sessions: {
     create(input: CreateSessionInput): Promise<Session>;
     getById(sessionId: string): Promise<Session | null>;
+    listByOwnerUserId(ownerUserId: string): Promise<Session[]>;
     updateAfterNodesCreated(
       input: UpdateSessionAfterNodesInput
     ): Promise<Session | null>;

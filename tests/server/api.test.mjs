@@ -372,6 +372,59 @@ test("session creation stores the authenticated owner user id", async () => {
   await app.close();
 });
 
+test("session list returns only sessions owned by the current user", async () => {
+  const app = await createAuthEnforcedTestApp();
+
+  const firstResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    headers: authHeaders(),
+    payload: {
+      title: "我的第一个会话",
+      goal: "验证列表包含当前用户会话"
+    }
+  });
+  assert.equal(firstResponse.statusCode, 201);
+
+  await new Promise((resolve) => setTimeout(resolve, 2));
+
+  const secondResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    headers: authHeaders(),
+    payload: {
+      title: "我的第二个会话",
+      goal: "验证列表按最近更新排序"
+    }
+  });
+  assert.equal(secondResponse.statusCode, 201);
+
+  const otherResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    headers: authHeaders("other-user-token"),
+    payload: {
+      title: "其他用户会话",
+      goal: "不能出现在当前用户列表里"
+    }
+  });
+  assert.equal(otherResponse.statusCode, 201);
+
+  const listResponse = await app.inject({
+    method: "GET",
+    url: "/api/sessions",
+    headers: authHeaders()
+  });
+
+  assert.equal(listResponse.statusCode, 200);
+  assert.deepEqual(
+    listResponse.json().sessions.map((session) => session.title),
+    ["我的第二个会话", "我的第一个会话"]
+  );
+
+  await app.close();
+});
+
 test("users cannot read or mutate sessions owned by another user", async () => {
   const app = await createAuthEnforcedTestApp();
 

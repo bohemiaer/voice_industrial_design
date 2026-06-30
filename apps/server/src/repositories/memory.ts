@@ -80,6 +80,11 @@ export function createMemoryServices(seedStore?: Partial<MemoryStore>): AppServi
       async getById(sessionId: string): Promise<Session | null> {
         return store.sessions.get(sessionId) ?? null;
       },
+      async listByOwnerUserId(ownerUserId: string): Promise<Session[]> {
+        return [...store.sessions.values()]
+          .filter((session) => session.ownerUserId === ownerUserId)
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      },
       async updateAfterNodesCreated(
         input: UpdateSessionAfterNodesInput
       ): Promise<Session | null> {

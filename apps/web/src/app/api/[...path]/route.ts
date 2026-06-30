@@ -4,16 +4,43 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type HttpMethod = "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT";
+type PersistenceMode = "postgres" | "memory";
 
 let appPromise: ReturnType<typeof buildApp> | null = null;
 
-function resolvePersistenceMode() {
+function resolvePersistenceMode(): PersistenceMode {
+  const configuredPersistenceMode = process.env.PERSISTENCE_MODE;
+
+  if (configuredPersistenceMode === "postgres") {
+    return "postgres";
+  }
+
+  if (configuredPersistenceMode === "memory") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "PERSISTENCE_MODE=memory is not allowed in production. DATABASE_URL is required for persistent sessions."
+      );
+    }
+
+    return "memory";
+  }
+
   const databaseUrl = process.env.DATABASE_URL ?? "";
   const isLocalDatabaseUrl = /(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(
     databaseUrl
   );
 
-  return databaseUrl && !isLocalDatabaseUrl ? "postgres" : "memory";
+  if (databaseUrl && !isLocalDatabaseUrl) {
+    return "postgres";
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "DATABASE_URL is required for production API persistence. Configure a remote Postgres database such as Supabase."
+    );
+  }
+
+  return "memory";
 }
 
 function getBackendApp(): ReturnType<typeof buildApp> {
