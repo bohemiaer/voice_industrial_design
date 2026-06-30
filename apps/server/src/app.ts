@@ -18,6 +18,7 @@ import { createOrchestrator } from "./orchestrator/service.js";
 import { createDrizzleServices } from "./repositories/drizzle.js";
 import { createMemoryServices } from "./repositories/memory.js";
 import type { AppServices } from "./repositories/types.js";
+import { registerDiagnosticsRoutes } from "./routes/diagnostics.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
@@ -99,10 +100,12 @@ export async function buildApp(
 
   let services: AppServices;
   let poolCloser: (() => Promise<void>) | null = null;
+  let diagnosticsPool: Parameters<typeof registerDiagnosticsRoutes>[3] = null;
 
   if (persistenceMode === "postgres") {
     const { db, pool } = createDatabase(config);
     services = createDrizzleServices(db);
+    diagnosticsPool = pool;
     poolCloser = async () => {
       await pool.end();
     };
@@ -156,6 +159,7 @@ export async function buildApp(
   });
 
   await registerHealthRoutes(app, services);
+  await registerDiagnosticsRoutes(app, config, services, diagnosticsPool);
   await registerSessionRoutes(app, services, orchestrator);
   await registerTaskRoutes(app, services, orchestrator);
 

@@ -257,6 +257,27 @@ test("protected APIs reject requests without auth", async () => {
   await app.close();
 });
 
+test("diagnostics endpoint reports safe runtime flags in development", async () => {
+  const app = await createTestApp();
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/diagnostics"
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json();
+  assert.equal(body.runtime.persistenceMode, "memory");
+  assert.equal(body.runtime.agentProvider, "siliconflow");
+  assert.equal(typeof body.runtime.hasDatabaseUrl, "boolean");
+  assert.equal(typeof body.runtime.hasSiliconFlowApiKey, "boolean");
+  assert.equal(typeof body.runtime.hasSupabaseUrl, "boolean");
+  assert.equal(typeof body.runtime.hasSupabaseJwtSecret, "boolean");
+  assert.equal(body.database, null);
+
+  await app.close();
+});
+
 test("voice turns forward a request-scoped SiliconFlow API key to the agent gateway", async () => {
   const observed = {
     siliconFlowApiKey: null

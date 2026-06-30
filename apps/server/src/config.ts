@@ -24,6 +24,7 @@ export interface AppConfig {
   supabaseUrl: string | null;
   supabaseJwtSecret: string | null;
   supabaseJwtAudience: string;
+  diagnosticsToken: string | null;
   defaultBranchCount: number;
   maxBranchCount: number;
   sessionDomain: "industrial_design";
@@ -101,6 +102,7 @@ export function loadConfig(
     supabaseUrl: mergedEnv.SUPABASE_URL ?? null,
     supabaseJwtSecret: mergedEnv.SUPABASE_JWT_SECRET ?? null,
     supabaseJwtAudience: mergedEnv.SUPABASE_JWT_AUDIENCE ?? "authenticated",
+    diagnosticsToken: mergedEnv.DIAGNOSTICS_TOKEN ?? null,
     defaultBranchCount: Number(mergedEnv.DEFAULT_BRANCH_COUNT ?? 3),
     maxBranchCount: Number(mergedEnv.MAX_BRANCH_COUNT ?? 4),
     sessionDomain: "industrial_design"

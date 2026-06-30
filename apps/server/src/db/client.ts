@@ -15,11 +15,31 @@ export function createDatabase(config: AppConfig): {
   }
 
   const pool = new Pool({
-    connectionString: config.databaseUrl
+    connectionString: config.databaseUrl,
+    ssl: shouldUseSsl(config.databaseUrl)
+      ? {
+          rejectUnauthorized: false
+        }
+      : undefined
   });
 
   return {
     db: drizzle(pool, { schema }),
     pool
   };
+}
+
+function shouldUseSsl(databaseUrl: string): boolean {
+  const parsed = new URL(databaseUrl);
+  const sslMode = parsed.searchParams.get("sslmode");
+
+  if (sslMode === "disable") {
+    return false;
+  }
+
+  if (["require", "verify-ca", "verify-full", "no-verify"].includes(sslMode ?? "")) {
+    return true;
+  }
+
+  return !/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(parsed.hostname);
 }
