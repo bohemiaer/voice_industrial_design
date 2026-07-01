@@ -46,6 +46,7 @@ test("database migrations include columns required by the current server schema"
     "owner_user_id",
     "current_selected_node_id",
     "last_executed_target_node_id",
+    "child_group_id",
     "suggested_followups",
     "affected_child_group_id",
     "deleted_node_ids",

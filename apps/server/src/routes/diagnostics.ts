@@ -14,7 +14,7 @@ const REQUIRED_COLUMNS = {
     "current_selected_node_id",
     "last_executed_target_node_id"
   ],
-  tree_nodes: ["suggested_followups"],
+  tree_nodes: ["child_group_id", "suggested_followups"],
   tree_operations: [
     "affected_child_group_id",
     "deleted_node_ids",
