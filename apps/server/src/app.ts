@@ -150,6 +150,17 @@ export async function buildApp(
     }
 
     request.log.error(error);
+    if (isDiagnosticsTokenValid(request, config.diagnosticsToken)) {
+      reply.status(500).send({
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unexpected server error",
+          detail: serializeError(error)
+        }
+      });
+      return;
+    }
+
     reply.status(500).send({
       error: {
         code: "INTERNAL_SERVER_ERROR",
@@ -170,6 +181,55 @@ export async function buildApp(
   });
 
   return app;
+}
+
+function isDiagnosticsTokenValid(
+  request: { headers: Record<string, unknown>; query: unknown },
+  diagnosticsToken: string | null
+): boolean {
+  if (!diagnosticsToken) {
+    return false;
+  }
+
+  const headerToken = request.headers["x-diagnostics-token"];
+  const queryToken =
+    typeof request.query === "object" &&
+    request.query !== null &&
+    "token" in request.query
+      ? String(request.query.token)
+      : null;
+
+  return headerToken === diagnosticsToken || queryToken === diagnosticsToken;
+}
+
+function serializeError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code:
+        "code" in error && typeof error.code === "string"
+          ? error.code
+          : undefined,
+      constraint:
+        "constraint" in error && typeof error.constraint === "string"
+          ? error.constraint
+          : undefined,
+      column:
+        "column" in error && typeof error.column === "string"
+          ? error.column
+          : undefined,
+      table:
+        "table" in error && typeof error.table === "string"
+          ? error.table
+          : undefined
+    };
+  }
+
+  return {
+    message: String(error)
+  };
 }
 
 function mapAgentGatewayError(error: AgentGatewayError): ApiError {
