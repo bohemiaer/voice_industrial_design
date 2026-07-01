@@ -98,7 +98,13 @@ async function proxyToBackend(
   request: Request,
   context: { params: { path?: string[] } }
 ): Promise<Response> {
-  const app = await getBackendApp();
+  let app: Awaited<ReturnType<typeof buildApp>>;
+  try {
+    app = await getBackendApp();
+  } catch (error) {
+    return createStartupErrorResponse(error);
+  }
+
   const url = new URL(request.url);
   const backendPath = `/${context.params.path?.join("/") ?? ""}`;
 
@@ -119,6 +125,27 @@ async function proxyToBackend(
     status: response.statusCode,
     headers: createResponseHeaders(response.headers)
   });
+}
+
+function createStartupErrorResponse(error: unknown): Response {
+  const message = error instanceof Error ? error.message : String(error);
+  const isConfigurationError =
+    message.includes("DATABASE_URL is required") ||
+    message.includes("PERSISTENCE_MODE=memory is not allowed");
+
+  return Response.json(
+    {
+      error: {
+        code: isConfigurationError
+          ? "API_CONFIGURATION_ERROR"
+          : "API_STARTUP_ERROR",
+        message
+      }
+    },
+    {
+      status: 500
+    }
+  );
 }
 
 export {
