@@ -48,6 +48,10 @@ export async function registerDiagnosticsRoutes(
         databaseHost: config.databaseUrl ? readDatabaseHost(config.databaseUrl) : null,
         databaseSslMode: config.databaseUrl ? readDatabaseSslMode(config.databaseUrl) : null,
         hasSiliconFlowApiKey: Boolean(config.siliconFlowApiKey),
+        hasSiliconFlowAsrModel: Boolean(config.siliconFlowAsrModel),
+        hasSiliconFlowBrainstormModel: Boolean(config.siliconFlowBrainstormModel),
+        hasSiliconFlowChatModel: Boolean(config.siliconFlowChatModel),
+        hasSiliconFlowImageModel: Boolean(config.siliconFlowImageModel),
         hasSupabaseUrl: Boolean(config.supabaseUrl),
         hasSupabaseJwtSecret: Boolean(config.supabaseJwtSecret)
       },

@@ -224,13 +224,11 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   async runChatAssistant(
     input: ChatAssistantRequest
   ): Promise<ChatAssistantOutput> {
-    const hasRuntimeApiKey = Boolean(
-      input.runtimeApiKeys?.siliconFlowApiKey?.trim()
-    );
+    const hasRuntimeApiKey = Boolean(normalizeApiKey(input.runtimeApiKeys?.siliconFlowApiKey));
 
     const canUseSiliconFlow =
-      hasRuntimeApiKey ||
-      Boolean(this.config.siliconFlowApiKey?.trim());
+      (hasRuntimeApiKey || Boolean(this.config.siliconFlowApiKey?.trim())) &&
+      Boolean(this.config.siliconFlowChatModel?.trim());
 
     if (canUseSiliconFlow) {
       return this.runSiliconFlowChatAssistant(input);
@@ -305,13 +303,11 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   async runMemorySummarizer(
     input: MemorySummarizerRequest
   ): Promise<MemorySummarizerOutput> {
-    const hasRuntimeApiKey = Boolean(
-      input.runtimeApiKeys?.siliconFlowApiKey?.trim()
-    );
+    const hasRuntimeApiKey = Boolean(normalizeApiKey(input.runtimeApiKeys?.siliconFlowApiKey));
 
     const canUseSiliconFlow =
-      hasRuntimeApiKey ||
-      Boolean(this.config.siliconFlowApiKey?.trim());
+      (hasRuntimeApiKey || Boolean(this.config.siliconFlowApiKey?.trim())) &&
+      Boolean(this.config.siliconFlowChatModel?.trim());
 
     if (canUseSiliconFlow) {
       return this.runSiliconFlowMemorySummarizer(input);
@@ -599,11 +595,12 @@ export class SiliconFlowAgentGateway implements AgentGateway {
   }
 
   private authHeaders(runtimeApiKeys?: RuntimeApiKeys): Record<string, string> {
-    const runtimeApiKey = runtimeApiKeys?.siliconFlowApiKey?.trim();
+    const runtimeApiKey = normalizeApiKey(runtimeApiKeys?.siliconFlowApiKey);
+    const configuredApiKey = normalizeApiKey(this.config.siliconFlowApiKey);
 
     return {
       authorization: `Bearer ${this.requireConfig(
-        runtimeApiKey || this.config.siliconFlowApiKey,
+        runtimeApiKey || configuredApiKey,
         "SILICONFLOW_API_KEY"
       )}`
     };
@@ -659,6 +656,16 @@ function resolveAudioFilename(mimeType: string): string {
   }
 
   return "recording.webm";
+}
+
+function normalizeApiKey(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.replace(/^Bearer\s+/i, "").trim();
 }
 
 function shouldRetryStatus(status: number): boolean {

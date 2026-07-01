@@ -18,6 +18,10 @@ const API_GATE_TITLE = "请填写 API";
 const API_GATE_DESCRIPTION = "硅基流动注册即可获得免费额度 API；配置后即可使用！";
 const API_GATE_REGISTRATION_URL = "https://cloud.siliconflow.cn/i/pUZUB64c";
 
+function normalizeSiliconFlowApiKey(value: string): string {
+  return value.trim().replace(/^Bearer\s+/i, "").trim();
+}
+
 function WorkbenchPageShell() {
   const apiStatus = useWorkbenchStore((state) => state.uiState.apiStatus);
   const apiError = useWorkbenchStore((state) => state.uiState.apiError);
@@ -45,7 +49,9 @@ function WorkbenchPageShell() {
       return;
     }
 
-    const storedApiKey = window.localStorage.getItem(WORKBENCH_API_STORAGE_KEY)?.trim() ?? "";
+    const storedApiKey = normalizeSiliconFlowApiKey(
+      window.localStorage.getItem(WORKBENCH_API_STORAGE_KEY) ?? ""
+    );
 
     if (!storedApiKey) {
       setAccessTokenProvider(null);
@@ -65,7 +71,7 @@ function WorkbenchPageShell() {
   }, [initializeWorkbench]);
 
   const handleSaveApiKey = useCallback(() => {
-    const trimmedApiKey = apiKeyDraft.trim();
+    const trimmedApiKey = normalizeSiliconFlowApiKey(apiKeyDraft);
 
     if (trimmedApiKey.length === 0) {
       setApiKeyError("请先填写可用的 SiliconFlow API。");

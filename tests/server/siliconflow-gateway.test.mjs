@@ -215,6 +215,24 @@ test("transcribeAudio accepts empty transcript text from SiliconFlow ASR", async
   assert.equal(result.transcriptText, "");
 });
 
+test("SiliconFlow gateway normalizes runtime API keys with a Bearer prefix", async () => {
+  const calls = [];
+  const gateway = await createGateway(async (url, init) => {
+    calls.push({ url, init });
+    return jsonResponse({ text: "已识别" });
+  }, { siliconFlowApiKey: null });
+
+  await gateway.transcribeAudio({
+    audio: Buffer.from("fake-audio"),
+    mimeType: "audio/webm",
+    runtimeApiKeys: {
+      siliconFlowApiKey: "  Bearer sf-live-from-browser  "
+    }
+  });
+
+  assert.equal(calls[0].init.headers.authorization, "Bearer sf-live-from-browser");
+});
+
 test("runBrainstormAssistant sends JSON mode chat completion request directly to DeepSeek official API", async () => {
   const calls = [];
   const gateway = await createGateway(async (url, init) => {

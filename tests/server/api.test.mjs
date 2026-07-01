@@ -271,6 +271,10 @@ test("diagnostics endpoint reports safe runtime flags in development", async () 
   assert.equal(body.runtime.agentProvider, "siliconflow");
   assert.equal(typeof body.runtime.hasDatabaseUrl, "boolean");
   assert.equal(typeof body.runtime.hasSiliconFlowApiKey, "boolean");
+  assert.equal(typeof body.runtime.hasSiliconFlowAsrModel, "boolean");
+  assert.equal(typeof body.runtime.hasSiliconFlowBrainstormModel, "boolean");
+  assert.equal(typeof body.runtime.hasSiliconFlowChatModel, "boolean");
+  assert.equal(typeof body.runtime.hasSiliconFlowImageModel, "boolean");
   assert.equal(typeof body.runtime.hasSupabaseUrl, "boolean");
   assert.equal(typeof body.runtime.hasSupabaseJwtSecret, "boolean");
   assert.equal(body.database, null);
