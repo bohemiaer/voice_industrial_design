@@ -1,12 +1,13 @@
-import { buildApp } from "@voice-industrial-design/server/app";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type HttpMethod = "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT";
 type PersistenceMode = "postgres" | "memory";
+type BackendApp = Awaited<
+  ReturnType<typeof import("@voice-industrial-design/server/app").buildApp>
+>;
 
-let appPromise: ReturnType<typeof buildApp> | null = null;
+let appPromise: Promise<BackendApp> | null = null;
 
 function resolvePersistenceMode(): PersistenceMode {
   const configuredPersistenceMode = process.env.PERSISTENCE_MODE;
@@ -43,11 +44,13 @@ function resolvePersistenceMode(): PersistenceMode {
   return "memory";
 }
 
-function getBackendApp(): ReturnType<typeof buildApp> {
+function getBackendApp(): Promise<BackendApp> {
   if (!appPromise) {
-    appPromise = buildApp({
-      persistenceMode: resolvePersistenceMode()
-    });
+    appPromise = import("@voice-industrial-design/server/app").then(({ buildApp }) =>
+      buildApp({
+        persistenceMode: resolvePersistenceMode()
+      })
+    );
   }
 
   return appPromise;
@@ -98,7 +101,7 @@ async function proxyToBackend(
   request: Request,
   context: { params: { path?: string[] } }
 ): Promise<Response> {
-  let app: Awaited<ReturnType<typeof buildApp>>;
+  let app: BackendApp;
   try {
     app = await getBackendApp();
   } catch (error) {
