@@ -552,6 +552,29 @@ test("session APIs create a session and return empty tree/messages", async () =>
   await app.close();
 });
 
+test("legacy voice-turn polling endpoint returns the running task shape", async () => {
+  const app = await createTestApp();
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "Legacy polling",
+      goal: "兼容旧前端轮询"
+    }
+  });
+  const { session } = createSessionResponse.json();
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/voice-turns`
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { task: null });
+
+  await app.close();
+});
+
 test("chat turns call Chat Assistant and do not mutate the tree", async () => {
   const calls = {
     chat: 0,

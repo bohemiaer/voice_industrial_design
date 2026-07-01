@@ -87,6 +87,18 @@ export async function registerSessionRoutes(
     return { messages };
   });
 
+  app.get("/api/sessions/:sessionId/voice-turns", async (request) => {
+    const currentUser = requireAuth(request);
+    const { sessionId } = request.params as { sessionId: string };
+    const session = await services.repositories.sessions.getById(sessionId);
+    assertSessionOwner(session, currentUser);
+
+    const task = await services.repositories.generationTasks.getRunningBySessionId(
+      sessionId
+    );
+    return { task };
+  });
+
   app.post("/api/sessions/:sessionId/voice-turns", async (request, reply) => {
     const currentUser = requireAuth(request);
     const { sessionId } = request.params as { sessionId: string };
