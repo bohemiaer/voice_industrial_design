@@ -839,7 +839,7 @@ test("v1 acceptance: brainstorm receives memory after summarization", async () =
   await app.close();
 });
 
-liveTest("voice turn APIs return quickly and tasks remain queryable while images finish in background", async () => {
+liveTest("voice turn APIs return after generation has been persisted for serverless runtimes", async () => {
   const app = await createTestApp();
 
   const createSessionResponse = await app.inject({
@@ -865,20 +865,20 @@ liveTest("voice turn APIs return quickly and tasks remain queryable while images
   });
 
   assert.equal(voiceTurnResponse.statusCode, 202);
-  const queuedTask = voiceTurnResponse.json().task;
-  assert.match(queuedTask.status, /queued|generating|completed/);
-  assert.equal(queuedTask.confirmationRequired, undefined);
-  assert.equal(queuedTask.confirmationStatus, undefined);
-  assert.equal(queuedTask.rewrittenIntentForConfirmation, undefined);
+  const returnedTask = voiceTurnResponse.json().task;
+  assert.equal(returnedTask.status, "completed");
+  assert.equal(returnedTask.confirmationRequired, undefined);
+  assert.equal(returnedTask.confirmationStatus, undefined);
+  assert.equal(returnedTask.rewrittenIntentForConfirmation, undefined);
 
-  const completedTask = await waitForTaskStatus(app, queuedTask.id);
-  assert.equal(completedTask.id, queuedTask.id);
+  const completedTask = await waitForTaskStatus(app, returnedTask.id);
+  assert.equal(completedTask.id, returnedTask.id);
   assert.equal(completedTask.status, "completed");
 
   await app.close();
 });
 
-liveTest("voice turn is orchestrated by the backend from transcript only and mutates the tree after background generation completes", async () => {
+liveTest("voice turn is orchestrated by the backend from transcript only and mutates the tree before returning", async () => {
   const app = await createTestApp();
 
   const createSessionResponse = await app.inject({
@@ -1432,7 +1432,7 @@ liveTest("server rejects new commands while generation is in flight", async () =
   });
   const { session } = createSessionResponse.json();
 
-  const firstTurn = await app.inject({
+  const firstTurnPromise = app.inject({
     method: "POST",
     url: `/api/sessions/${session.id}/voice-turns`,
     payload: {
@@ -1441,7 +1441,7 @@ liveTest("server rejects new commands while generation is in flight", async () =
     }
   });
 
-  assert.equal(firstTurn.statusCode, 202);
+  await new Promise((resolve) => setTimeout(resolve, 5));
 
   const secondTurn = await app.inject({
     method: "POST",
@@ -1454,6 +1454,9 @@ liveTest("server rejects new commands while generation is in flight", async () =
 
   assert.equal(secondTurn.statusCode, 409);
   assert.equal(secondTurn.json().error.code, "SESSION_BUSY");
+
+  const firstTurn = await firstTurnPromise;
+  assert.equal(firstTurn.statusCode, 202);
 
   await app.close();
 });
@@ -2042,7 +2045,7 @@ liveTest("sketch prompt preserves root goal parent context and recent conversati
   await app.close();
 });
 
-test("voice turns return before all branch sketches finish while branch generation still runs concurrently", async () => {
+test("voice turns persist all generated branches while sketch generation still runs concurrently", async () => {
   let currentInFlight = 0;
   let maxInFlight = 0;
   const app = await createTestAppWithGateway({
@@ -2112,7 +2115,7 @@ test("voice turns return before all branch sketches finish while branch generati
     })
   ).json().task;
 
-  assert.match(task.status, /queued|generating/);
+  assert.equal(task.status, "completed");
   const completedTask = await waitForTaskStatus(app, task.id);
   assert.equal(completedTask.status, "completed");
   assert.ok(maxInFlight > 1);

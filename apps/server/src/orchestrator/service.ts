@@ -306,7 +306,7 @@ export function createOrchestrator(
         }))
       });
 
-      void executeTaskGeneration({
+      const finalTask = await executeTaskGeneration({
         services,
         agentGateway,
         config,
@@ -325,7 +325,7 @@ export function createOrchestrator(
       });
 
       return {
-        task: queuedTask,
+        task: finalTask,
         operation: null
       };
     },
@@ -471,15 +471,44 @@ async function executeTaskGeneration(input: {
   actionType: BrainstormAssistantOutput["actionType"];
   briefs: VisualDirectionBrief[];
   runtimeApiKeys?: RuntimeApiKeys;
-}): Promise<void> {
+}): Promise<GenerationTask> {
   try {
-    await persistGeneratedBranches(input);
-  } catch {
-    await input.services.repositories.generationTasks.updateStatus({
+    return await persistGeneratedBranches(input);
+  } catch (error) {
+    recordAgentObservation("generation_task.failed", {
+      sessionId: input.session.id,
+      taskId: input.task.id,
+      error: serializeGenerationError(error)
+    });
+
+    const failedTask = await input.services.repositories.generationTasks.updateStatus({
       taskId: input.task.id,
       status: "failed"
     });
+
+    if (!failedTask) {
+      throw new ApiError(404, "TASK_NOT_FOUND", "Task not found");
+    }
+
+    return failedTask;
   }
+}
+
+function serializeGenerationError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      code:
+        "code" in error && typeof error.code === "string"
+          ? error.code
+          : undefined
+    };
+  }
+
+  return {
+    message: String(error)
+  };
 }
 
 function resolveReferencedTargetNodeId(
