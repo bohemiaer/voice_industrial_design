@@ -29,6 +29,9 @@ import { recordAgentObservation } from "../observability/agent-observation.js";
 import type { AppServices } from "../repositories/types.js";
 
 const MEMORY_TRIGGER_TURN_COUNT = 6;
+const PLACEHOLDER_SESSION_GOALS = new Set([
+  "请详细描述你的需求，可以参考下面几个要点"
+]);
 
 export interface ProcessVoiceTurnInput {
   sessionId: string;
@@ -192,8 +195,15 @@ export function createOrchestrator(
         });
       }
 
-      const assistantInput = buildBrainstormInput({
+      const effectiveSession = await anchorInitialSessionGoal({
+        services,
         session,
+        treeNodes,
+        targetNode: targetContext.targetNode,
+        transcriptText: transcript.transcriptText
+      });
+      const assistantInput = buildBrainstormInput({
+        session: effectiveSession,
         transcriptText: transcript.transcriptText,
         targetNode: targetContext.targetNode,
         selectedNodeId: targetContext.selectedNodeId,
@@ -242,7 +252,7 @@ export function createOrchestrator(
       });
 
       const task = await services.repositories.generationTasks.create({
-        sessionId: session.id,
+        sessionId: effectiveSession.id,
         targetNodeId: assistantOutput.targetNodeId,
         actionType: assistantOutput.actionType,
         branchCount: assistantOutput.branchCount,
@@ -253,14 +263,14 @@ export function createOrchestrator(
 
       const userTranscriptMessage = await createUserTranscriptMessage(
         services,
-        session.id,
+        effectiveSession.id,
         task.id,
         transcript.transcriptText
       );
 
       const assistantSummaryMessage = await createAssistantSummaryMessage(
         services,
-        session.id,
+        effectiveSession.id,
         task.id,
         assistantOutput.assistantReply
       );
@@ -268,7 +278,7 @@ export function createOrchestrator(
       await maybeCreateConversationMemory({
         services,
         agentGateway,
-        session,
+        session: effectiveSession,
         targetNode: targetContext.targetNode,
         messages: [
           ...sessionMessages,
@@ -310,7 +320,7 @@ export function createOrchestrator(
         services,
         agentGateway,
         config,
-        session,
+        session: effectiveSession,
         task: queuedTask,
         targetNode: targetContext.targetNode,
         treeNodes,
@@ -676,6 +686,30 @@ function buildBrainstormInput(input: {
       inputMode: "voice_only"
     }
   };
+}
+
+async function anchorInitialSessionGoal(input: {
+  services: AppServices;
+  session: Session;
+  treeNodes: TreeNode[];
+  targetNode: TreeNode | null;
+  transcriptText: string;
+}): Promise<Session> {
+  if (
+    input.targetNode ||
+    input.treeNodes.length > 0 ||
+    !PLACEHOLDER_SESSION_GOALS.has(input.session.goal.trim())
+  ) {
+    return input.session;
+  }
+
+  return (
+    await input.services.repositories.sessions.updateAfterNodesCreated({
+      sessionId: input.session.id,
+      nextPublicNodeNumber: input.session.nextPublicNodeNumber,
+      goal: input.transcriptText
+    })
+  ) ?? input.session;
 }
 
 function resolveDefaultBranchCount(input: {

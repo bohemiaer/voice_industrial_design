@@ -20,6 +20,7 @@ import { createMemoryServices } from "./repositories/memory.js";
 import type { AppServices } from "./repositories/types.js";
 import { registerDiagnosticsRoutes } from "./routes/diagnostics.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerImageProxyRoutes } from "./routes/image-proxy.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 
@@ -53,10 +54,25 @@ export async function buildApp(
     ? options.defaultAuthenticatedUser
     : options.defaultAuthenticatedUser ?? LOCAL_AUTH_USER;
   const app = Fastify({
-    logger: true
+    logger: {
+      level: "info"
+    },
+    disableRequestLogging: true
   });
 
   app.addHook("onRequest", async (request, reply) => {
+    request.log.info(
+      {
+        req: {
+          method: request.method,
+          url: sanitizeLoggedRequestUrl(request.url),
+          host: request.hostname,
+          remoteAddress: request.ip
+        }
+      },
+      "incoming request"
+    );
+
     const origin = request.headers.origin;
 
     if (origin) {
@@ -89,6 +105,17 @@ export async function buildApp(
         defaultAuthenticatedUser
       });
     }
+  });
+
+  app.addHook("onResponse", async (request, reply) => {
+    request.log.info(
+      {
+        res: {
+          statusCode: reply.statusCode
+        }
+      },
+      "request completed"
+    );
   });
 
   await app.register(multipart, {
@@ -170,6 +197,7 @@ export async function buildApp(
   });
 
   await registerHealthRoutes(app, services);
+  await registerImageProxyRoutes(app);
   await registerDiagnosticsRoutes(app, config, services, diagnosticsPool);
   await registerSessionRoutes(app, services, orchestrator);
   await registerTaskRoutes(app, services, orchestrator);
@@ -230,6 +258,16 @@ function serializeError(error: unknown): Record<string, unknown> {
   return {
     message: String(error)
   };
+}
+
+function sanitizeLoggedRequestUrl(url: string): string {
+  const queryIndex = url.indexOf("?");
+
+  if (queryIndex === -1) {
+    return url;
+  }
+
+  return url.slice(0, queryIndex);
 }
 
 function mapAgentGatewayError(error: AgentGatewayError): ApiError {

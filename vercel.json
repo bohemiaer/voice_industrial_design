@@ -3,5 +3,6 @@
   "framework": "nextjs",
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build:shared && pnpm --filter @voice-industrial-design/server build && pnpm --filter @voice-industrial-design/web build",
-  "outputDirectory": "apps/web/.next"
+  "outputDirectory": "apps/web/.next",
+  "regions": ["hkg1"]
 }

@@ -239,6 +239,91 @@ test("health endpoint reports server status", async () => {
   await app.close();
 });
 
+test("image proxy rejects non-SiliconFlow image URLs", async () => {
+  const app = await createTestApp();
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/image-proxy?url=${encodeURIComponent("https://example.com/sketch.png")}`
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error.code, "IMAGE_PROXY_URL_NOT_ALLOWED");
+
+  await app.close();
+});
+
+test("image proxy returns allowed SiliconFlow temporary images", async () => {
+  const app = await createTestApp();
+  const originalFetch = globalThis.fetch;
+  const imageBytes = Buffer.from("fake-png");
+  const requestedUrls = [];
+
+  globalThis.fetch = async (url) => {
+    requestedUrls.push(String(url));
+    return new Response(imageBytes, {
+      status: 200,
+      headers: {
+        "content-type": "image/png",
+        "content-length": String(imageBytes.byteLength)
+      }
+    });
+  };
+
+  try {
+    const sourceUrl =
+      "https://s3.siliconflow.cn/temporary/None/generated.png?X-Amz-Signature=test";
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/image-proxy?url=${encodeURIComponent(sourceUrl)}`
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers["content-type"], "image/png");
+    assert.equal(response.body, "fake-png");
+    assert.deepEqual(requestedUrls, [sourceUrl]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await app.close();
+  }
+});
+
+test("image proxy accepts SiliconFlow PNG bytes with octet-stream content type", async () => {
+  const app = await createTestApp();
+  const originalFetch = globalThis.fetch;
+  const imageBytes = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
+  ]);
+
+  globalThis.fetch = async () =>
+    new Response(imageBytes, {
+      status: 200,
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-length": String(imageBytes.byteLength)
+      }
+    });
+
+  try {
+    const sourceUrl =
+      "https://s3.siliconflow.cn/temporary/None/generated.png?X-Amz-Signature=test";
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/image-proxy?url=${encodeURIComponent(sourceUrl)}`
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.headers["content-type"], "image/png");
+    assert.equal(
+      response.rawPayload.subarray(0, 8).toString("hex"),
+      "89504e470d0a1a0a"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await app.close();
+  }
+});
+
 test("protected APIs reject requests without auth", async () => {
   const app = await createAuthEnforcedTestApp();
 
@@ -835,6 +920,93 @@ test("v1 acceptance: brainstorm receives memory after summarization", async () =
     brainstormInputs.at(-1).conversationMemory.shortSummary.includes("轻薄"),
     true
   );
+
+  await app.close();
+});
+
+test("first generation anchors placeholder session goal to the user's real design target", async () => {
+  const brainstormInputs = [];
+  const app = await createTestAppWithGateway({
+    async transcribeAudio(input) {
+      return {
+        transcriptText: input.transcriptText ?? "我要设计一款咖啡机"
+      };
+    },
+    async runBrainstormAssistant(input) {
+      brainstormInputs.push(input);
+      return {
+        actionType: "diverge",
+        targetNodeId: input.selectedNodeId,
+        branchCount: 3,
+        designIntentSummary: `围绕“${input.sessionGoal}”生成首轮方向。`,
+        assistantReply: "现在围绕真实设计目标生成三个方向。",
+        promptHints: ["白底线稿"],
+        directionBriefs: Array.from({ length: 3 }, (_, index) => ({
+          briefId: `brief-${index + 1}`,
+          targetParentNodeId: input.selectedNodeId,
+          label: `方向 ${index + 1}`,
+          displayName: `咖啡机方向 ${index + 1}`,
+          intentSummary: `探索咖啡机方向 ${index + 1}`,
+          formLanguage: ["小巧"],
+          userNeedResponse: ["易操作"],
+          inspirationHints: ["家用咖啡机"],
+          suggestedFollowups: ["继续压缩体量", "强化一键交互", "细化自动清洗"],
+          variationAxis: `变化轴 ${index + 1}`,
+          promptIntent: `生成咖啡机方向 ${index + 1} 草图`
+        }))
+      };
+    },
+    async generateSketch(input) {
+      return {
+        imageId: `image-${input.brief.briefId}`,
+        briefId: input.brief.briefId,
+        imageUrl: `https://example.com/${input.brief.briefId}.png`,
+        promptUsed: input.brief.promptIntent,
+        negativePromptUsed: "photorealistic",
+        visualSummary: `${input.brief.displayName} 草图`
+      };
+    },
+    async runChatAssistant() {
+      throw new Error("chat should not run for generation turns");
+    },
+    async runMemorySummarizer() {
+      throw new Error("memory should not run on first generation");
+    }
+  });
+
+  const createSessionResponse = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "请输入您想要设计的产品",
+      goal: "请详细描述你的需求，可以参考下面几个要点"
+    }
+  });
+  const { session } = createSessionResponse.json();
+  const realDesignTarget =
+    "我要设计一款咖啡机，人群：都市租房上班族；功能：一键多咖、自动清洗、预约；核心：小巧易操作；风格：简约轻奢";
+
+  const generationResponse = await app.inject({
+    method: "POST",
+    url: `/api/sessions/${session.id}/voice-turns`,
+    payload: {
+      transcriptText: realDesignTarget,
+      targetNodeId: null
+    }
+  });
+
+  assert.equal(generationResponse.statusCode, 202);
+  assert.equal(brainstormInputs.at(-1).sessionGoal, realDesignTarget);
+  assert.equal(
+    brainstormInputs.at(-1).selectedNodeSummary.intentSummary,
+    realDesignTarget
+  );
+
+  const treeResponse = await app.inject({
+    method: "GET",
+    url: `/api/sessions/${session.id}/tree`
+  });
+  assert.equal(treeResponse.json().session.goal, realDesignTarget);
 
   await app.close();
 });

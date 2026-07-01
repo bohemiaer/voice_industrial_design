@@ -397,7 +397,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     recordAgentObservation("image_assistant.input", {
       model,
       briefId: input.brief.briefId,
-      sketchInput: input,
+      sketchInput: redactRuntimeApiKeys(input),
       promptSet,
       imageRequest
     });
@@ -431,7 +431,7 @@ export class SiliconFlowAgentGateway implements AgentGateway {
     recordAgentObservation("image_assistant.output", {
       model,
       briefId: input.brief.briefId,
-      sketchOutput
+      sketchOutput: redactSketchOutput(sketchOutput)
     });
 
     return sketchOutput;
@@ -656,6 +656,51 @@ function resolveAudioFilename(mimeType: string): string {
   }
 
   return "recording.webm";
+}
+
+function redactRuntimeApiKeys<T extends { runtimeApiKeys?: RuntimeApiKeys }>(
+  input: T
+): Omit<T, "runtimeApiKeys"> & {
+  runtimeApiKeys?: { siliconFlowApiKey?: "present" | null };
+} {
+  const { runtimeApiKeys, ...rest } = input;
+
+  if (!runtimeApiKeys) {
+    return rest;
+  }
+
+  return {
+    ...rest,
+    runtimeApiKeys: {
+      siliconFlowApiKey: runtimeApiKeys.siliconFlowApiKey ? "present" : null
+    }
+  };
+}
+
+function redactSketchOutput(
+  output: SketchGenerationOutput
+): SketchGenerationOutput {
+  return {
+    ...output,
+    imageUrl: redactGeneratedImageUrl(output.imageUrl)
+  };
+}
+
+function redactGeneratedImageUrl(imageUrl: string): string {
+  try {
+    const parsedUrl = new URL(imageUrl);
+
+    if (
+      parsedUrl.hostname === "s3.siliconflow.cn" &&
+      parsedUrl.pathname.startsWith("/temporary/")
+    ) {
+      return `${parsedUrl.origin}${parsedUrl.pathname}`;
+    }
+  } catch {
+    return "[invalid image url]";
+  }
+
+  return imageUrl;
 }
 
 function normalizeApiKey(value: string | null | undefined): string | null {

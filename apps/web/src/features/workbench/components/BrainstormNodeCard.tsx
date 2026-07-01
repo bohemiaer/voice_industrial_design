@@ -2,6 +2,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { TreeNode } from "@voice-industrial-design/shared";
 
 import type { NodeUiMeta } from "../types";
+import { resolveGeneratedImageUrl } from "../imageProxy";
 
 const rootPromptHints = [
   "描述产品类型",
@@ -104,7 +105,7 @@ export function BrainstormNodeCard({
               {hasRenderedImage ? (
                 <img
                   className="node-card__image"
-                  src={node.imageUrl ?? undefined}
+                  src={resolveGeneratedImageUrl(node.imageUrl)}
                   alt={`${node.displayName} 生成草图`}
                 />
               ) : (

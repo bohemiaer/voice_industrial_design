@@ -15,6 +15,7 @@ import type { TreeNode } from "@voice-industrial-design/shared";
 import { useWorkbenchStore } from "../store";
 import type { NodePalette } from "../types";
 import { resolveRootNodeDisplayName } from "../copy";
+import { resolveGeneratedImageUrl } from "../imageProxy";
 import { createNodeUiMeta, createSymmetricTreeLayout } from "../uiMeta";
 import {
   BrainstormNodeCard,
@@ -108,7 +109,7 @@ function readBlobAsDataUrl(blob: Blob): Promise<string> {
 }
 
 async function fetchImageDataUrl(imageUrl: string): Promise<string> {
-  const response = await fetch(imageUrl);
+  const response = await fetch(resolveGeneratedImageUrl(imageUrl) ?? imageUrl);
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
