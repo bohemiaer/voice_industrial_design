@@ -1079,44 +1079,51 @@ async function persistGeneratedBranches(input: {
   const baseLayerOrdinal = isRefresh
     ? Math.min(...latestChildGroupNodes.map((node) => node.layerOrdinal))
     : existingChildren.length + 1;
-  const branchResults = await Promise.all(
-    input.briefs.map(async (brief, index) => {
-      const branchTask =
-        input.task.branchTasks[index] ??
-        (await input.services.repositories.branchTasks.create({
-          generationTaskId: input.task.id,
-          branchIndex: index,
-          brief,
-          status: "generating",
-          imageUrl: null,
-          errorMessage: null
-        }));
+  const branchResults: Array<{
+    branchTaskId: string;
+    brief: VisualDirectionBrief;
+    branchTaskStatus: "completed" | "failed";
+    sketch: SketchGenerationOutput | null;
+  }> = [];
 
+  for (const [index, brief] of input.briefs.entries()) {
+    const branchTask =
+      input.task.branchTasks[index] ??
+      (await input.services.repositories.branchTasks.create({
+        generationTaskId: input.task.id,
+        branchIndex: index,
+        brief,
+        status: "generating",
+        imageUrl: null,
+        errorMessage: null
+      }));
+
+    await input.services.repositories.branchTasks.update({
+      branchTaskId: branchTask.id,
+      status: "generating"
+    });
+
+    if (!isImageGenerationEnabled(input.config)) {
       await input.services.repositories.branchTasks.update({
         branchTaskId: branchTask.id,
-        status: "generating"
+        status: "completed",
+        imageUrl: null,
+        errorMessage: null
       });
 
-      if (!isImageGenerationEnabled(input.config)) {
-        await input.services.repositories.branchTasks.update({
-          branchTaskId: branchTask.id,
-          status: "completed",
-          imageUrl: null,
-          errorMessage: null
-        });
+      branchResults.push({
+        branchTaskId: branchTask.id,
+        brief,
+        branchTaskStatus: "completed" as const,
+        sketch: null
+      });
+      continue;
+    }
 
-        return {
-          branchTaskId: branchTask.id,
-          brief,
-          branchTaskStatus: "completed" as const,
-          sketch: null
-        };
-      }
-
-      try {
-        const sketch = await input.agentGateway.generateSketch(
-          {
-            ...buildSketchInput({
+    try {
+      const sketch = await input.agentGateway.generateSketch(
+        {
+          ...buildSketchInput({
             brief,
             depth,
             siblingBriefs: input.briefs,
@@ -1124,39 +1131,38 @@ async function persistGeneratedBranches(input: {
             conversationHistory: input.conversationHistory,
             targetNode: input.targetNode,
             treeNodes: input.treeNodes
-            }),
-            runtimeApiKeys: input.runtimeApiKeys
-          }
-        );
-        await input.services.repositories.branchTasks.update({
-          branchTaskId: branchTask.id,
-          status: "completed",
-          imageUrl: sketch.imageUrl
-        });
+          }),
+          runtimeApiKeys: input.runtimeApiKeys
+        }
+      );
+      await input.services.repositories.branchTasks.update({
+        branchTaskId: branchTask.id,
+        status: "completed",
+        imageUrl: sketch.imageUrl
+      });
 
-        return {
-          branchTaskId: branchTask.id,
-          brief,
-          branchTaskStatus: "completed" as const,
-          sketch
-        };
-      } catch (error) {
-        await input.services.repositories.branchTasks.update({
-          branchTaskId: branchTask.id,
-          status: "failed",
-          errorMessage:
-            error instanceof Error ? error.message : "Sketch generation failed"
-        });
+      branchResults.push({
+        branchTaskId: branchTask.id,
+        brief,
+        branchTaskStatus: "completed" as const,
+        sketch
+      });
+    } catch (error) {
+      await input.services.repositories.branchTasks.update({
+        branchTaskId: branchTask.id,
+        status: "failed",
+        errorMessage:
+          error instanceof Error ? error.message : "Sketch generation failed"
+      });
 
-        return {
-          branchTaskId: branchTask.id,
-          brief,
-          branchTaskStatus: "failed" as const,
-          sketch: null
-        };
-      }
-    })
-  );
+      branchResults.push({
+        branchTaskId: branchTask.id,
+        brief,
+        branchTaskStatus: "failed" as const,
+        sketch: null
+      });
+    }
+  }
   const successfulBranches = branchResults.filter(
     (branch): branch is typeof branch & { sketch: SketchGenerationOutput } =>
       branch.sketch !== null

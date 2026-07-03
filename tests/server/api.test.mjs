@@ -2217,9 +2217,10 @@ liveTest("sketch prompt preserves root goal parent context and recent conversati
   await app.close();
 });
 
-test("voice turns persist all generated branches while sketch generation still runs concurrently", async () => {
+test("voice turns persist all generated branches while sketch generation runs serially", async () => {
   let currentInFlight = 0;
   let maxInFlight = 0;
+  let sketchCalls = 0;
   const app = await createTestAppWithGateway({
     async transcribeAudio(input) {
       return {
@@ -2250,6 +2251,7 @@ test("voice turns persist all generated branches while sketch generation still r
       };
     },
     async generateSketch(input) {
+      sketchCalls += 1;
       currentInFlight += 1;
       maxInFlight = Math.max(maxInFlight, currentInFlight);
       await new Promise((resolve) => setTimeout(resolve, 30));
@@ -2290,7 +2292,8 @@ test("voice turns persist all generated branches while sketch generation still r
   assert.equal(task.status, "completed");
   const completedTask = await waitForTaskStatus(app, task.id);
   assert.equal(completedTask.status, "completed");
-  assert.ok(maxInFlight > 1);
+  assert.equal(sketchCalls, 4);
+  assert.equal(maxInFlight, 1);
 
   await app.close();
 });
