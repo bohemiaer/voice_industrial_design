@@ -43,7 +43,13 @@ frontend-refer/
 # Temp / generated
 _tmp_*
 tmp-*.png
+tmp_*.txt
 logs/
+tmp/
+outputs/
+docs/architecture.md
+docs/architecture.svg
+docs/ppt-word.md
 
 # Standalone projects
 landing-page/
